@@ -27,7 +27,7 @@ import Prelude hiding (log)
 
 import System.Random
 
-import Channels hiding (Peer)
+import Channels
 import Process
 import Process.Timer
 import Supervisor

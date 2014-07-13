@@ -1,7 +1,7 @@
 {-# LANGUAGE TypeSynonymInstances #-}
 {-# LANGUAGE FlexibleInstances #-}
 module Channels
-    ( Peer(..)
+    ( NewPeer(..)
     , PeerChokeMsg(..)
     , MsgTy(..)
     , PeerChannel
@@ -22,7 +22,7 @@ import Network.Socket
 import Protocol.Wire
 import Torrent
 
-data Peer = Peer SockAddr
+data NewPeer = NewPeer SockAddr -- ^ a fresh peer before the crypto handshake
 
 data MsgTy = FromPeer (Message, Int)
            | FromSenderQ Int -- Always UpRate events

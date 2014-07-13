@@ -27,6 +27,9 @@ import qualified Process.DirWatcher as DirWatcher (start)
 import qualified Process.Status as Status (start, StatusChannel, PStat)
 import qualified Process.TorrentManager as TorrentManager (start, TorrentMgrChan, TorrentManagerMsg(..))
 
+import qualified Data.ByteString.Char8 as Char8
+
+import Crypto
 import Supervisor
 import Torrent
 import Version
@@ -40,7 +43,13 @@ main = do args <- getArgs
 
 -- COMMAND LINE PARSING
 
-data Flag = Version | Debug | LogFile FilePath | WatchDir FilePath | StatFile FilePath
+data Flag = Version
+          | Debug
+          | LogFile FilePath
+          | WatchDir FilePath
+          | StatFile FilePath
+          | GpgHomedir FilePath
+          | GpgFingerprint String
   deriving (Eq, Show)
 
 options :: [OptDescr Flag]
@@ -50,6 +59,8 @@ options =
   , Option []               ["logfile"] (ReqArg LogFile "FILE") "Choose a filepath on which to log"
   , Option ['W']            ["watchdir"] (ReqArg WatchDir "DIR") "Choose a directory to watch for torrents"
   , Option ['S']            ["statfile"] (ReqArg StatFile "FILE") "Choose a file to gather stats into"
+  , Option ['H']            ["homedir"] (ReqArg GpgHomedir "DIR") "Specify the GPG Homedir"
+  , Option ['F']            ["fingerprint"] (ReqArg GpgHomedir "DIR") "The fingerprint to use"
   ]
 
 (~=) :: Flag -> Flag -> Bool
@@ -58,6 +69,8 @@ Debug ~= Debug = True
 LogFile _ ~= LogFile _ = True
 WatchDir _ ~= WatchDir _ = True
 StatFile _ ~= StatFile _ = True
+GpgHomedir _ ~= GpgHomedir _ = True
+GpgFingerprint _ ~= GpgFingerprint _ = True
 _ ~= _ = False
 
 flag :: Flag -> [Flag] -> Maybe Flag
@@ -116,8 +129,23 @@ generatePeerId = do
     gen <- getStdGen
     return $ mkPeerId gen
 
+cryptoSetup :: [Flag] -> IO CryptoCtx
+cryptoSetup flags = do
+    let homedir = case flag (GpgHomedir "") flags of
+                    Nothing -> error "GpgHomedir is required"
+                    Just (GpgHomedir dir) -> dir
+                    Just _ -> error "Impossible match"
+    let fpr = case flag (GpgFingerprint "") flags of
+                Nothing -> error "GpgFingerprint is required"
+                Just (GpgFingerprint f) -> f
+                Just _ -> error "Impossible match"
+    valid <- doesDirectoryExist homedir
+    unless valid (error "GpgHomedir must exist")
+    return $ CryptoCtx homedir (Char8.pack fpr)
+
 download :: [Flag] -> [String] -> IO ()
 download flags names = do
+    cryptoCtx <- cryptoSetup flags
     setupLogging flags
     watchC <- liftIO newTChanIO
     workersWatch <- setupDirWatching flags watchC
@@ -136,7 +164,7 @@ download flags names = do
               [ Worker $ Console.start waitC statusC
               , Worker $ TorrentManager.start watchC statusC stv chokeC pid pmC
               , setupStatus flags statusC stv
-              , Worker $ PeerMgr.start pmC pid chokeC rtv
+              , Worker $ PeerMgr.start cryptoCtx pmC pid chokeC rtv
               , Worker $ ChokeMgr.start chokeC rtv 100 -- 100 is upload rate in KB
               , Worker $ Listen.start defaultPort pmC
               ]) supC

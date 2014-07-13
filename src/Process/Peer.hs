@@ -33,14 +33,13 @@ import Data.Set as S hiding (map, foldl)
 import Data.Time.Clock
 import Data.Word
 
-import Network.Socket hiding (KeepAlive)
-
 import Test.Framework
 import Test.Framework.Providers.HUnit
 import Test.HUnit hiding (Path, Test, assert)
 
 import Channels
 import Digest
+import Crypto
 import Process
 import Process.FS
 import Process.PieceMgr
@@ -63,7 +62,7 @@ import qualified Process.Peer.Receiver as Receiver
 -- INTERFACE
 ----------------------------------------------------------------------
 
-start :: Socket -> [Capabilities] -> MgrChannel -> ChokeMgr.RateTVar -> PieceMgrChannel
+start :: ConnectedPeer -> [Capabilities] -> MgrChannel -> ChokeMgr.RateTVar -> PieceMgrChannel
              -> FSPChannel -> TVar [PStat] -> PieceMap -> Int -> InfoHash
              -> IO Children
 start s caps pMgrC rtv pieceMgrC fsC stv pm nPieces ih = do

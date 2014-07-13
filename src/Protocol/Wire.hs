@@ -48,6 +48,7 @@ import Test.QuickCheck
 
 import qualified Protocol.BCode as BCode (BCode, encode)
 import Torrent
+import Crypto
 
 ------------------------------------------------------------
 
@@ -269,14 +270,14 @@ toW8 = fromIntegral . ord
 
 
 -- | Receive the header parts from the other end
-receiveHeader :: Socket -> Int -> (InfoHash -> Bool)
+receiveHeader :: Socket -> Int -> (InfoHash -> Bool) -> ConnectedPeer
               -> IO (Either String ([Capabilities], L.ByteString, InfoHash))
-receiveHeader sock sz ihTst = parseHeader `fmap` loop [] sz
+receiveHeader sock sz ihTst connP = parseHeader `fmap` loop [] sz
   where parseHeader = runGet (headerParser ihTst)
         loop :: [B.ByteString] -> Int -> IO B.ByteString
         loop bs z | z == 0 = return . B.concat $ reverse bs
                   | otherwise = do
-                        nbs <- recv sock z
+                        nbs <- decrypt connP `fmap` recv sock z
                         when (B.length nbs == 0) $ fail "Socket is dead"
                         loop (nbs : bs) (z - B.length nbs)
 
@@ -305,13 +306,13 @@ decodeCapabilities w = catMaybes
       if testBit w 20 then Just Extended else Nothing ]
 
 -- | Initiate a handshake on a socket
-initiateHandshake :: Socket -> PeerId -> InfoHash
+initiateHandshake :: Socket -> PeerId -> InfoHash -> ConnectedPeer
                   -> IO (Either String ([Capabilities], L.ByteString, InfoHash))
-initiateHandshake sock peerid infohash = do
+initiateHandshake sock peerid infohash connP = do
     debugM "Protocol.Wire" "Sending off handshake message"
-    _ <- Lz.send sock msg
+    _ <- Lz.send sock $ encryptL connP msg
     debugM "Protocol.Wire" "Receiving handshake from other end"
-    receiveHeader sock sz (== infohash)
+    receiveHeader sock sz (== infohash) connP
   where msg = handShakeMessage peerid infohash
         sz = fromIntegral (L.length msg)
 
@@ -323,16 +324,16 @@ handShakeMessage pid ih =
                                  putByteString . toBS $ pid]
 
 -- | Receive a handshake on a socket
-receiveHandshake :: Socket -> PeerId -> (InfoHash -> Bool)
+receiveHandshake :: Socket -> PeerId -> (InfoHash -> Bool) -> ConnectedPeer
                  -> IO (Either String ([Capabilities], L.ByteString, InfoHash))
-receiveHandshake s pid ihTst = do
+receiveHandshake s pid ihTst connP = do
     debugM "Protocol.Wire" "Receiving handshake from other end"
-    r <- receiveHeader s sz ihTst
+    r <- receiveHeader s sz ihTst connP
     case r of
         Left err -> return $ Left err
         Right (caps, rpid, ih) ->
             do debugM "Protocol.Wire" "Sending back handshake message"
-               _ <- Lz.send s (msg ih)
+               _ <- Lz.send s (encryptL connP $ msg ih)
                return $ Right (caps, rpid, ih)
   where msg ih = handShakeMessage pid ih
         sz = fromIntegral (L.length $ msg (B.pack $ replicate 20 32)) -- Dummy value

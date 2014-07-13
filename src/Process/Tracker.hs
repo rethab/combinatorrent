@@ -59,7 +59,7 @@ data TrackerEvent = Started | Stopped | Completed | Running
 -- | The tracker will in general respond with a BCoded dictionary. In our world, this is
 --   not the data structure we would like to work with. Hence, we parse the structure into
 --   the ADT below.
-data TrackerResponse = ResponseOk { newPeers :: [PeerMgr.Peer],
+data TrackerResponse = ResponseOk { newPeers :: [PeerMgr.NewPeer],
                                     completeR :: Maybe Integer,
                                     incompleteR :: Maybe Integer,
                                     timeoutInterval :: Integer,
@@ -194,27 +194,27 @@ processResultDict d =
                        <*> (pure $ BCode.trackerMinInterval d)
 
 
-decodeIps :: (B.ByteString, B.ByteString) -> [PeerMgr.Peer]
+decodeIps :: (B.ByteString, B.ByteString) -> [PeerMgr.NewPeer]
 decodeIps (ipv4, ipv6) = decodeIps4 ipv4 ++ decodeIps6 ipv6
 
-decodeIps4 :: B.ByteString -> [PeerMgr.Peer]
+decodeIps4 :: B.ByteString -> [PeerMgr.NewPeer]
 decodeIps4 bs | B.null bs = []
               | B.length bs >= 6 =
                     let (ip, r1) = B.splitAt 4 bs
                         (port, r2) = B.splitAt 2 r1
                         i' = cW32 ip
                         p' = PortNum $ cW16 port
-                    in PeerMgr.Peer (S.SockAddrInet p' i') : decodeIps4 r2
+                    in PeerMgr.NewPeer (S.SockAddrInet p' i') : decodeIps4 r2
               | otherwise = [] -- Some trackers fail spectacularly
 
-decodeIps6 :: B.ByteString -> [PeerMgr.Peer]
+decodeIps6 :: B.ByteString -> [PeerMgr.NewPeer]
 decodeIps6 bs | B.null bs = []
               | B.length bs >= 18 =
                     let (ip6, r1) = B.splitAt 16 bs
                         (port, r2) = B.splitAt 2 r1
                         i' = cW128 ip6
                         p' = PortNum $ cW16 port
-                    in PeerMgr.Peer (S.SockAddrInet6 p' 0 i' 0) : decodeIps6 r2
+                    in PeerMgr.NewPeer (S.SockAddrInet6 p' 0 i' 0) : decodeIps6 r2
               | otherwise = [] -- Some trackers fail spectacularly
 
 cW32 :: B.ByteString -> Word32

@@ -1,7 +1,7 @@
 {-# LANGUAGE TupleSections #-}
 module Process.PeerMgr (
    -- * Types
-     Peer(..)
+     NewPeer(..)
    , PeerMgrMsg(..)
    , PeerMgrChannel
    , TorrentLocal(..)
@@ -28,6 +28,7 @@ import System.Log.Logger
 import Channels
 import Process
 import Process.Peer as Peer
+import Crypto
 import Process.ChokeMgr hiding (start)
 import Process.FS hiding (start)
 import Process.PieceMgr hiding (start)
@@ -37,7 +38,7 @@ import Protocol.Wire
 import Supervisor
 import Torrent hiding (infoHash)
 
-data PeerMgrMsg = PeersFromTracker InfoHash [Peer]
+data PeerMgrMsg = PeersFromTracker InfoHash [NewPeer]
                 | NewIncoming (Sock.Socket, Sock.SockAddr)
                 | NewTorrent InfoHash TorrentLocal
                 | StopTorrent InfoHash
@@ -54,11 +55,13 @@ instance NFData ThreadId where
 
 type PeerMgrChannel = TChan PeerMgrMsg
 
+-- Reader Environment
 data CF = CF { peerCh :: PeerMgrChannel
              , mgrCh :: MgrChannel
              , peerPool :: SupervisorChannel
              , chokeMgrCh :: ChokeMgrChannel
              , chokeRTV :: RateTVar
+             , cryptoCtx :: CryptoCtx
              }
 
 instance Logging CF where
@@ -67,20 +70,21 @@ instance Logging CF where
 
 type ChanManageMap = M.Map InfoHash TorrentLocal
 
-data ST = ST { peersInQueue  :: ![(InfoHash, Peer)]
+-- State Environment
+data ST = ST { peersInQueue  :: ![(InfoHash, NewPeer)]
              , peers ::         !(M.Map ThreadId PeerChannel)
              , peerId ::        !PeerId
              , cmMap ::         !ChanManageMap
              }
 
-start :: PeerMgrChannel -> PeerId
+start :: CryptoCtx -> PeerMgrChannel -> PeerId
       -> ChokeMgrChannel -> RateTVar -> SupervisorChannel
       -> IO ThreadId
-start ch pid chokeMgrC rtv supC =
+start cctx ch pid chokeMgrC rtv supC =
     do mgrC <- newTChanIO
        fakeChan <- newTChanIO
        pool <- liftM snd $ oneForOne "PeerPool" [] fakeChan
-       spawnP (CF ch mgrC pool chokeMgrC rtv)
+       spawnP (CF ch mgrC pool chokeMgrC rtv cctx)
               (ST [] M.empty pid cmap) ({-# SCC "PeerMgr" #-} catchP lp
                                        (defaultStopHandler supC))
   where
@@ -145,14 +149,15 @@ fillPeers = do
             mapM_ addPeer toAdd
             modify (\s -> s { peersInQueue = rest }))
 
-addPeer :: (InfoHash, Peer) -> Process CF ST ThreadId
-addPeer (ih, (Peer addr)) = do
+addPeer :: (InfoHash, NewPeer) -> Process CF ST ThreadId
+addPeer (ih, peer) = do
     ppid <- gets peerId
     pool <- asks peerPool
     mgrC <- asks mgrCh
     cm   <- gets cmMap
     v    <- asks chokeRTV
-    liftIO $ connect (addr, ppid, ih) pool mgrC v cm
+    cctx <- asks cryptoCtx
+    liftIO $ connect cctx (peer, ppid, ih) pool mgrC v cm
 
 addIncoming :: (Sock.Socket, Sock.SockAddr) -> Process CF ST ThreadId
 addIncoming conn = do
@@ -161,21 +166,25 @@ addIncoming conn = do
     mgrC <- asks mgrCh
     v    <- asks chokeRTV
     cm   <- gets cmMap
-    liftIO $ acceptor conn pool ppid mgrC v cm
+    cctx <- asks cryptoCtx
+    liftIO $ acceptor cctx conn pool ppid mgrC v cm
 
-type ConnectRecord = (Sock.SockAddr, PeerId, InfoHash)
+type ConnectRecord = (NewPeer, PeerId, InfoHash)
 
-connect :: ConnectRecord -> SupervisorChannel -> MgrChannel -> RateTVar -> ChanManageMap
+connect :: CryptoCtx -> ConnectRecord -> SupervisorChannel -> MgrChannel -> RateTVar -> ChanManageMap
         -> IO ThreadId
-connect (addr, pid, ih) pool mgrC rtv cmap =
+connect cctx ((NewPeer addr), pid, ih) pool mgrC rtv cmap =
     forkIO (connector >> return ())
   where 
         connector = {-# SCC "connect" #-}
          do sock <- Sock.socket Sock.AF_INET Sock.Stream Sock.defaultProtocol
             debugM "Process.PeerMgr.connect" $ "Connecting to: " ++ show addr
             Sock.connect sock addr
-            debugM "Process.PeerMgr.connect" "Connected, initiating handShake"
-            r <- initiateHandshake sock pid ih
+            debugM "Process.PeerMgr.connect" $
+                        "Connected, initiating crypto handshake. my fpr: " ++ show (_fpr cctx)
+            connP <- handshakeLeecher cctx
+            debugM "Process.PeerMgr.connect" "Connected, initiating bittorrent handShake"
+            r <- initiateHandshake sock pid ih connP
             debugM "Process.PeerMgr.connect" "Handshake run"
             case r of
               Left err -> do debugM "Process.PeerMgr.connect"
@@ -187,7 +196,7 @@ connect (addr, pid, ih) pool mgrC rtv cmap =
                      let tc = case M.lookup ihsh cmap of
                                     Nothing -> error "Impossible (2), I hope"
                                     Just x  -> x
-                     children <- Peer.start sock caps mgrC rtv
+                     children <- Peer.start connP caps mgrC rtv
                                                       (tcPcMgrCh tc) (tcFSCh tc) (tcStatTV tc)
                                                       (tcPM tc) (succ . snd . bounds $ tcPM tc)
                                                       ihsh
@@ -195,15 +204,16 @@ connect (addr, pid, ih) pool mgrC rtv cmap =
                         SpawnNew (Supervisor $ allForOne "PeerSup" children)
                      return ()
 
-acceptor :: (Sock.Socket, Sock.SockAddr) -> SupervisorChannel
+acceptor :: CryptoCtx -> (Sock.Socket, Sock.SockAddr) -> SupervisorChannel
          -> PeerId -> MgrChannel -> RateTVar -> ChanManageMap
          -> IO ThreadId
-acceptor (s,sa) pool pid mgrC rtv cmmap =
+acceptor cctx (s,sa) pool pid mgrC rtv cmmap =
     forkIO (connector >> return ())
   where ihTst k = M.member k cmmap
         connector = {-# SCC "acceptor" #-} do
             debugLog "Handling incoming connection"
-            r <- receiveHandshake s pid ihTst
+            connP <- handshakeSeeder cctx
+            r <- receiveHandshake s pid ihTst connP
             debugLog "RecvHandshake run"
             case r of
                 Left err -> do debugLog ("Incoming Peer handshake failure with "
@@ -214,7 +224,7 @@ acceptor (s,sa) pool pid mgrC rtv cmmap =
                        let tc = case M.lookup ih cmmap of
                                   Nothing -> error "Impossible, I hope"
                                   Just x  -> x
-                       children <- Peer.start s caps mgrC rtv (tcPcMgrCh tc) (tcFSCh tc)
+                       children <- Peer.start connP caps mgrC rtv (tcPcMgrCh tc) (tcFSCh tc)
                                                         (tcStatTV tc) (tcPM tc)
                                                         (succ . snd . bounds $ tcPM tc) ih
                        atomically $ writeTChan pool $
