@@ -18,7 +18,7 @@ import Control.Exception
 import Control.Monad.State
 import Control.Monad.Reader
 
-import Prelude hiding (catch, log)
+import Prelude hiding (log)
 
 import Data.Array
 import Data.Bits

@@ -23,7 +23,7 @@ import qualified Data.Map as M
 import qualified Data.Set as S
 import Data.Traversable as T
 
-import Prelude hiding (catch, log)
+import Prelude hiding (log)
 
 import System.Random
 

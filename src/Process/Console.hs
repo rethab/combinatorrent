@@ -11,9 +11,6 @@ import Control.Concurrent
 import Control.Concurrent.STM
 import Control.Monad.Reader
 
-import Prelude hiding (catch)
-
-
 import Process
 import qualified Process.Status as St
 import Supervisor

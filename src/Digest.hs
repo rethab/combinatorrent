@@ -7,7 +7,7 @@ module Digest
   )
 where
 
-import Control.DeepSeq
+import Control.DeepSeq ()
 
 import qualified Data.ByteString as B
 

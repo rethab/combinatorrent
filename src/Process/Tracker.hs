@@ -13,7 +13,6 @@ module Process.Tracker
     )
 where
 
-import Prelude hiding (catch)  
 import Control.Applicative
 import Control.Concurrent
 import Control.Concurrent.STM
