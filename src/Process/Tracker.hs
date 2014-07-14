@@ -31,6 +31,8 @@ import Network.Stream
 
 import Control.Exception
 
+import Prelude hiding (catch)
+
 import Protocol.BCode as BCode hiding (encode, announceList)
 import Process
 import Channels
