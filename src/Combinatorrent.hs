@@ -60,7 +60,7 @@ options =
   , Option ['W']            ["watchdir"] (ReqArg WatchDir "DIR") "Choose a directory to watch for torrents"
   , Option ['S']            ["statfile"] (ReqArg StatFile "FILE") "Choose a file to gather stats into"
   , Option ['H']            ["homedir"] (ReqArg GpgHomedir "DIR") "Specify the GPG Homedir"
-  , Option ['F']            ["fingerprint"] (ReqArg GpgHomedir "DIR") "The fingerprint to use"
+  , Option ['F']            ["fingerprint"] (ReqArg GpgFingerprint "DIR") "The fingerprint to use"
   ]
 
 (~=) :: Flag -> Flag -> Bool
