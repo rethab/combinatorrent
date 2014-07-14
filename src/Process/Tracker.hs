@@ -318,7 +318,7 @@ trackerRequest uri =
                (2,_,_) ->
                    case BCode.decode . toBS . rspBody $ r of
                      Left pe -> return . Left . show $ pe
-                     Right bc -> do debugP $ "Response: " ++ show bc
+                     Right bc -> do debugP $ "Response: " ++ BCode.prettyPrint bc
                                     return $ Right $ processResultDict bc
                (3,_,_) ->
                    case findHeader HdrLocation r of

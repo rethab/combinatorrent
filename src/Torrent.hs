@@ -133,7 +133,7 @@ defaultOptimisticSlots = 2
 
 -- | Default port to communicate on
 defaultPort :: Word16
-defaultPort = 1580
+defaultPort = 1579
 
 -- | Convert a BCode block into its corresponding TorrentInfo block, perhaps
 --   failing in the process.
