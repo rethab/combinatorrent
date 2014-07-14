@@ -56,10 +56,10 @@ type InfoHash = Digest
 type PeerId   = String
 
 -- | Our PeerId
-newtype MyPeerId = MPID PeerId
+newtype MyPeerId = MPID PeerId deriving (Show, Eq)
 
 -- | Somebody else's peer id
-newtype PeerPeerId = PPID PeerId
+newtype PeerPeerId = PPID PeerId deriving (Show, Eq)
 
 
 -- | The internal type of Announce URLs

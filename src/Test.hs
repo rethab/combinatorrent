@@ -8,11 +8,12 @@ import System.Environment ( getArgs )
 import Test.Framework
 import Test.Framework.Providers.QuickCheck2
 
-import qualified Data.PieceSet  (testSuite)
-import qualified Data.Queue     (testSuite)
-import qualified Protocol.BCode (testSuite)
-import qualified Protocol.Wire  (testSuite)
-import qualified Process.Peer   (testSuite)
+import qualified Data.PieceSet   (testSuite)
+import qualified Data.Queue      (testSuite)
+import qualified Protocol.BCode  (testSuite)
+import qualified Protocol.Wire   (testSuite)
+import qualified Process.Peer    (testSuite)
+import qualified Process.Tracker (testSuite)
 
 runTests :: IO ()
 runTests =
@@ -24,6 +25,7 @@ runTests =
      , Protocol.BCode.testSuite
      , Protocol.Wire.testSuite
      , Process.Peer.testSuite
+     , Process.Tracker.testSuite
      ]
 
 testSuite :: Test

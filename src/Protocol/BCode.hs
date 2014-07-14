@@ -282,10 +282,10 @@ trackerBinPeers bc = do v4 <- searchStr "peers" bc
                         v6 <- return $ maybe (B.empty) id $ searchStr "peers6" bc
                         return (v4, v6)
 
-trackerDictPeers :: BCode -> Maybe [(String, B.ByteString, Integer)]
+trackerDictPeers :: BCode -> Maybe [(String, String, Integer)]
 trackerDictPeers d = mapArray decodeDictPeer <$> search [PString "peers"] d
     where decodeDictPeer p = triple <$> (toString <$> searchStr "id" p)
-                                    <*> searchStr "ip" p
+                                    <*> (toString <$> searchStr "ip" p)
                                     <*> searchInt "port" p
           triple a b c = (a, b, c)
           toString = map (chr . fromIntegral) . B.unpack

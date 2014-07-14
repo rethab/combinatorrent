@@ -30,6 +30,7 @@ import Torrent
 --   the bin peer is only a number sequence of ip and port
 data NewPeer = NewBinPeer SockAddr -- ^ a fresh bin peer before the crypto handshake
              | NewDictPeer PeerPeerId SockAddr -- ^ a fresh dict peer
+             deriving (Show, Eq)
 
 peerAddr :: NewPeer -> SockAddr
 peerAddr (NewBinPeer a) = a

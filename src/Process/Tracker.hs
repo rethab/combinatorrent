@@ -1,3 +1,4 @@
+{-# LANGUAGE OverloadedStrings #-}
 -- | The TrackerP module is responsible for keeping in touch with the Tracker
 -- of a torrent.  The tracker is contacted periodically, and we exchange
 -- information with it. Specifically, we tell the tracker how much we have
@@ -10,6 +11,7 @@
 --
 module Process.Tracker
     ( start
+    , testSuite
     )
 where
 
@@ -33,7 +35,7 @@ import Network.Stream
 
 import qualified Control.Exception as E
 
-import Protocol.BCode as BCode hiding (encode, announceList)
+import Protocol.BCode as BCode hiding (encode, announceList, testSuite)
 import Process
 import Channels
 import Supervisor
@@ -41,6 +43,10 @@ import Torrent
 import qualified Process.Status as Status
 import qualified Process.PeerMgr as PeerMgr
 import qualified Process.Timer as Timer
+
+import Test.Framework
+import Test.Framework.Providers.HUnit
+import Test.HUnit hiding (Path, Test)
 
 -- | The tracker state is used to tell the tracker our current state. In order
 --   to output it correctly, we override the default show instance with the
@@ -200,11 +206,28 @@ processResultDict d =
 -- todo ipv6
 decodeDictPeers :: BCode -> Maybe [PeerMgr.NewPeer]
 decodeDictPeers d = map decodeDictPeer <$> BCode.trackerDictPeers d
-    where decodeDictPeer (ppid, ip, port) = PeerMgr.NewDictPeer
-                                            (PPID ppid)
-                                            (SockAddrInet
-                                                (PortNum $ fromIntegral port)
-                                                (cW32 ip))
+
+decodeDictPeer :: (String, String, Integer) -> PeerMgr.NewPeer
+decodeDictPeer (ppid, ip, port) =
+    PeerMgr.NewDictPeer (PPID ppid) (SockAddrInet
+                                        (PortNum . b2l $ fromIntegral port)
+                                        (parseStringIP ip))
+
+-- | big endian to little endian
+b2l :: Word16 -> Word16
+b2l w = rotateL w 8
+
+parseStringIP :: String -> HostAddress
+parseStringIP ip = accBytes . map read $ splitWith (== '.') ip
+    where splitWith :: (Char -> Bool) -> String -> [String]
+          splitWith f xs = let (h, t) = span (not . f) xs
+                           in if null t then [h] else h : splitWith f (drop 1 t)
+          accBytes :: [Word8] -> Word32
+          accBytes [a,b,c,d] = fromIntegral d `shiftL` 24
+                           .|. fromIntegral c `shiftL` 16
+                           .|. fromIntegral b `shiftL`  8
+                           .|. fromIntegral a
+          accBytes _ = error ("Expected IPv4 but got: " ++ ip)
 
 -- bin peers
 
@@ -394,3 +417,19 @@ trackerfyEvent ev =
         Completed -> [("event", "completed")]
         Started   -> [("event", "started")]
         Stopped   -> [("event", "stopped")]
+
+
+-- TESTS
+
+testSuite :: Test
+testSuite = testGroup "Process/Tracker"
+  [ testCase "HUnit decodeDictPeer" testDecodeDictPeer
+  ]
+
+testDecodeDictPeer :: Assertion
+testDecodeDictPeer =
+    let peer = decodeDictPeer ("myId", "127.0.0.1", 1579)
+    in do addr <- inet_addr "127.0.0.1"
+          let expected = PeerMgr.NewDictPeer (PPID "myId")
+                                             (SockAddrInet (PortNum $ b2l 1579) addr)
+          assertEqual "should equal values" expected peer
