@@ -23,3 +23,5 @@ report.html
 .hpc
 .cabal-sandbox/
 cabal.sandbox.config
+alice/random_seed
+bob/random_seed
