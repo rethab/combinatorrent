@@ -181,8 +181,14 @@ connect cctx ((NewPeer addr), pid, ih) pool mgrC rtv cmap =
             debugM "Process.PeerMgr.connect" $ "Connecting to: " ++ show addr
             Sock.connect sock addr
             debugM "Process.PeerMgr.connect" $
-                        "Connected, initiating crypto handshake. my fpr: " ++ show (_fpr cctx)
-            connP <- handshakeLeecher cctx
+                        "Connected, initiating leecher crypto handshake. my fpr: "
+                        ++ show (_fpr cctx)
+            eConnP <- handshakeLeecher sock cctx
+            case eConnP of
+                Left e -> do debugM "Process.PeerMgr.connect" ("Crypto Handshake failed: " ++ e)
+                             return ()
+                Right connP -> bHandshakeAndSpawn connP sock
+        bHandshakeAndSpawn connP sock = do
             debugM "Process.PeerMgr.connect" "Connected, initiating bittorrent handShake"
             r <- initiateHandshake sock pid ih connP
             debugM "Process.PeerMgr.connect" "Handshake run"
@@ -212,7 +218,15 @@ acceptor cctx (s,sa) pool pid mgrC rtv cmmap =
   where ihTst k = M.member k cmmap
         connector = {-# SCC "acceptor" #-} do
             debugLog "Handling incoming connection"
-            connP <- handshakeSeeder cctx
+            debugM "Process.PeerMgr.connect" $
+                        "Connected, initiating seeder crypto handshake. my fpr: "
+                        ++ show (_fpr cctx)
+            eConnP <- handshakeSeeder s cctx
+            case eConnP of
+                Left e -> do debugLog ("Crypto Handshake failed: " ++ e)
+                             return ()
+                Right connP -> bHandshakeAndSpawn connP
+        bHandshakeAndSpawn connP = do
             r <- receiveHandshake s pid ihTst connP
             debugLog "RecvHandshake run"
             case r of
@@ -222,13 +236,13 @@ acceptor cctx (s,sa) pool pid mgrC rtv cmmap =
                 Right (caps, _rpid, ih) ->
                     do debugLog "entering peerP loop code"
                        let tc = case M.lookup ih cmmap of
-                                  Nothing -> error "Impossible, I hope"
-                                  Just x  -> x
+                                   Nothing -> error "Impossible, I hope"
+                                   Just x  -> x
                        children <- Peer.start connP caps mgrC rtv (tcPcMgrCh tc) (tcFSCh tc)
-                                                        (tcStatTV tc) (tcPM tc)
-                                                        (succ . snd . bounds $ tcPM tc) ih
+                                                           (tcStatTV tc) (tcPM tc)
+                                                           (succ . snd . bounds $ tcPM tc) ih
                        atomically $ writeTChan pool $
-                            SpawnNew (Supervisor $ allForOne "PeerSup" children)
+                               SpawnNew (Supervisor $ allForOne "PeerSup" children)
                        return ()
         debugLog = debugM "Process.PeerMgr.acceptor"
 
