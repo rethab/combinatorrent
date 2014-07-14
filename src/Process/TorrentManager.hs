@@ -40,7 +40,7 @@ type TorrentMgrChan = TChan [TorrentManagerMsg]
 data CF = CF { tCh :: TorrentMgrChan
              , tStatusCh    :: Status.StatusChannel
              , tStatusTV    :: TVar [Status.PStat]
-             , tPeerId      :: PeerId
+             , tPeerId      :: MyPeerId
              , tPeerMgrCh   :: PeerMgr.PeerMgrChannel
              , tChokeCh     :: ChokeMgr.ChokeMgrChannel
              }
@@ -53,7 +53,7 @@ start :: TorrentMgrChan -- ^ Channel to watch for changes to torrents
       -> Status.StatusChannel
       -> TVar [Status.PStat]
       -> ChokeMgr.ChokeMgrChannel
-      -> PeerId
+      -> MyPeerId
       -> PeerMgr.PeerMgrChannel
       -> SupervisorChannel
       -> IO ThreadId

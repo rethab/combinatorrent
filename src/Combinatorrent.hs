@@ -124,7 +124,7 @@ setupStatus flags statusC stv =
       Just (StatFile fn) -> Worker $ Status.start (Just fn) statusC stv
       Just _ -> error "Impossible match"
 
-generatePeerId :: IO PeerId
+generatePeerId :: IO MyPeerId
 generatePeerId = do
     gen <- getStdGen
     return $ mkPeerId gen

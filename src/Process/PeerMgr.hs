@@ -73,11 +73,11 @@ type ChanManageMap = M.Map InfoHash TorrentLocal
 -- State Environment
 data ST = ST { peersInQueue  :: ![(InfoHash, NewPeer)]
              , peers ::         !(M.Map ThreadId PeerChannel)
-             , peerId ::        !PeerId
+             , myPeerId ::      !MyPeerId
              , cmMap ::         !ChanManageMap
              }
 
-start :: CryptoCtx -> PeerMgrChannel -> PeerId
+start :: CryptoCtx -> PeerMgrChannel -> MyPeerId
       -> ChokeMgrChannel -> RateTVar -> SupervisorChannel
       -> IO ThreadId
 start cctx ch pid chokeMgrC rtv supC =
@@ -142,16 +142,22 @@ numPeers = 40
 fillPeers :: Process CF ST ()
 fillPeers = do
     sz <- liftM M.size $ gets peers
+    mPid <- gets myPeerId
     when (sz < numPeers)
-        (do q <- gets peersInQueue
-            let (toAdd, rest) = splitAt (numPeers - sz) q
-            debugP $ "Filling with up to " ++ show (numPeers - sz) ++ " peers"
-            mapM_ addPeer toAdd
-            modify (\s -> s { peersInQueue = rest }))
+         (do q <- gets peersInQueue
+             let (toAdd, rest) = splitAt (numPeers - sz) q
+             debugP $ "Filling with up to " ++ show (numPeers - sz) ++ " peers"
+             mapM_ addPeer (filter (not . myself mPid . snd) toAdd)
+             modify (\s -> s { peersInQueue = rest }))
+
+       where myself :: MyPeerId -> NewPeer -> Bool
+             myself (MPID myPid) (NewDictPeer (PPID p) _) = p == myPid
+             myself _ _ = False -- bin peers dont have an id. see TODO.md
+
 
 addPeer :: (InfoHash, NewPeer) -> Process CF ST ThreadId
 addPeer (ih, peer) = do
-    ppid <- gets peerId
+    ppid <- gets myPeerId
     pool <- asks peerPool
     mgrC <- asks mgrCh
     cm   <- gets cmMap
@@ -161,7 +167,7 @@ addPeer (ih, peer) = do
 
 addIncoming :: (Sock.Socket, Sock.SockAddr) -> Process CF ST ThreadId
 addIncoming conn = do
-    ppid   <- gets peerId
+    ppid   <- gets myPeerId
     pool <- asks peerPool
     mgrC <- asks mgrCh
     v    <- asks chokeRTV
@@ -169,16 +175,18 @@ addIncoming conn = do
     cctx <- asks cryptoCtx
     liftIO $ acceptor cctx conn pool ppid mgrC v cm
 
-type ConnectRecord = (NewPeer, PeerId, InfoHash)
+type ConnectRecord = (NewPeer, MyPeerId, InfoHash)
 
 connect :: CryptoCtx -> ConnectRecord -> SupervisorChannel -> MgrChannel -> RateTVar -> ChanManageMap
         -> IO ThreadId
-connect cctx ((NewPeer addr), pid, ih) pool mgrC rtv cmap =
+connect cctx (peer, pid, ih) pool mgrC rtv cmap =
     forkIO (connector >> return ())
   where 
         connector = {-# SCC "connect" #-}
          do sock <- Sock.socket Sock.AF_INET Sock.Stream Sock.defaultProtocol
-            debugM "Process.PeerMgr.connect" $ "Connecting to: " ++ show addr
+            let addr = peerAddr peer
+            let theirPid = peerId peer
+            debugM "Process.PeerMgr.connect" $ "Connecting to: " ++ theirPid ++ " on " ++ show addr
             Sock.connect sock addr
             debugM "Process.PeerMgr.connect" $
                         "Connected, initiating leecher crypto handshake. my fpr: "
@@ -187,8 +195,8 @@ connect cctx ((NewPeer addr), pid, ih) pool mgrC rtv cmap =
             case eConnP of
                 Left e -> do debugM "Process.PeerMgr.connect" ("Crypto Handshake failed: " ++ e)
                              return ()
-                Right connP -> bHandshakeAndSpawn connP sock
-        bHandshakeAndSpawn connP sock = do
+                Right connP -> bHandshakeAndSpawn connP sock addr
+        bHandshakeAndSpawn connP sock addr = do
             debugM "Process.PeerMgr.connect" "Connected, initiating bittorrent handShake"
             r <- initiateHandshake sock pid ih connP
             debugM "Process.PeerMgr.connect" "Handshake run"
@@ -211,9 +219,9 @@ connect cctx ((NewPeer addr), pid, ih) pool mgrC rtv cmap =
                      return ()
 
 acceptor :: CryptoCtx -> (Sock.Socket, Sock.SockAddr) -> SupervisorChannel
-         -> PeerId -> MgrChannel -> RateTVar -> ChanManageMap
+         -> MyPeerId -> MgrChannel -> RateTVar -> ChanManageMap
          -> IO ThreadId
-acceptor cctx (s,sa) pool pid mgrC rtv cmmap =
+acceptor cctx (s,sa) pool (MPID pid) mgrC rtv cmmap =
     forkIO (connector >> return ())
   where ihTst k = M.member k cmmap
         connector = {-# SCC "acceptor" #-} do

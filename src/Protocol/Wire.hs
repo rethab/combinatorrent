@@ -306,14 +306,14 @@ decodeCapabilities w = catMaybes
       if testBit w 20 then Just Extended else Nothing ]
 
 -- | Initiate a handshake on a socket
-initiateHandshake :: Socket -> PeerId -> InfoHash -> ConnectedPeer
+initiateHandshake :: Socket -> MyPeerId -> InfoHash -> ConnectedPeer
                   -> IO (Either String ([Capabilities], L.ByteString, InfoHash))
-initiateHandshake sock peerid infohash connP = do
+initiateHandshake sock (MPID myPeerId) infohash connP = do
     debugM "Protocol.Wire" "Sending off handshake message"
     _ <- Lz.send sock $ encryptL connP msg
     debugM "Protocol.Wire" "Receiving handshake from other end"
     receiveHeader sock sz (== infohash) connP
-  where msg = handShakeMessage peerid infohash
+  where msg = handShakeMessage myPeerId infohash
         sz = fromIntegral (L.length msg)
 
 -- | Construct a default handshake message from a PeerId and an InfoHash

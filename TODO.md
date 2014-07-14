@@ -10,7 +10,8 @@ partially acts like a bug tracker at the moment in addition to being a
 wish-list.
 
    - Handle error cases when checking a torrent file.
-   - Do not connect to ourselves :)
+   - Do not connect to ourselves (solved if peers arrive from tracker
+     as dict, but there's the binary case, where only ip and port is known)
    - (thomaschrstnsn) Implement a creator for torrent files
    - If we get a wrong URI, the code currently deadlocks since the tracker
      dies. Handle this problem gracefully.

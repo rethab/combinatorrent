@@ -1,8 +1,9 @@
+{-# LANGUAGE OverloadedStrings #-}
 -- | Add a module description here
 --   also add descriptions to each function.
 module Protocol.BCode 
 (
-              BCode,
+              BCode(..),
               Path(..),
               encode,
               -- encodeBS,
@@ -26,7 +27,8 @@ module Protocol.BCode
               trackerIncomplete,
               trackerInterval,
               trackerMinInterval,
-              trackerPeers,
+              trackerBinPeers,
+              trackerDictPeers,
               trackerWarning,
               trackerError,
               toBS,
@@ -49,6 +51,7 @@ import qualified Data.Text as T
 import qualified Data.Text.Encoding as T
 
 import Data.Char
+import Data.Maybe (catMaybes)
 
 import Data.List
 import qualified Data.Map as M
@@ -226,6 +229,10 @@ search (PInt i : rest) (BArray bs) | i < 0 || i > length bs = Nothing
 search (PString s : rest) (BDict mp) = M.lookup s mp >>= search rest
 search _ _ = Nothing
 
+mapArray :: (BCode -> Maybe a) -> BCode -> [a]
+mapArray f (BArray bs) = catMaybes $ map f bs
+mapArray _ _ = []
+
 search' :: String -> BCode -> Maybe B.ByteString
 search' str b = case search [toPS str] b of
                   Nothing -> Nothing
@@ -260,20 +267,28 @@ announceList b = case search [toPS "announce-list"] b of
                   
 {- Tracker accessors -}
 trackerComplete, trackerIncomplete, trackerInterval :: BCode -> Maybe Integer
-trackerMinInterval :: BCode -> Maybe Integer
 trackerComplete = searchInt "complete"
 trackerIncomplete = searchInt "incomplete"
 trackerInterval = searchInt "interval"
+trackerMinInterval :: BCode -> Maybe Integer
 trackerMinInterval = searchInt "min interval"
 
 trackerError, trackerWarning :: BCode -> Maybe B.ByteString
 trackerError = searchStr "failure reason"
 trackerWarning = searchStr "warning mesage"
 
-trackerPeers :: BCode -> Maybe (B.ByteString, B.ByteString)
-trackerPeers bc = do v4 <- searchStr "peers" bc
-                     v6 <- return $ maybe (B.empty) id $ searchStr "peers6" bc
-                     return (v4, v6)
+trackerBinPeers :: BCode -> Maybe (B.ByteString, B.ByteString)
+trackerBinPeers bc = do v4 <- searchStr "peers" bc
+                        v6 <- return $ maybe (B.empty) id $ searchStr "peers6" bc
+                        return (v4, v6)
+
+trackerDictPeers :: BCode -> Maybe [(String, B.ByteString, Integer)]
+trackerDictPeers d = mapArray decodeDictPeer <$> search [PString "peers"] d
+    where decodeDictPeer p = triple <$> (toString <$> searchStr "id" p)
+                                    <*> searchStr "ip" p
+                                    <*> searchInt "port" p
+          triple a b c = (a, b, c)
+          toString = map (chr . fromIntegral) . B.unpack
 
 info :: BCode -> Maybe BCode
 info = search [toPS "info"]
@@ -288,6 +303,7 @@ infoPieceLength bc = do BInt i <- search [toPS "info", toPS "piece length"] bc
                         return i
 
 infoLength :: BCode -> Maybe Integer
+-- while <|> might look interesting here, it will lead to out of memory ;)
 infoLength bc = maybe length2 Just length1
     where
       -- |info/length key for single-file torrent
@@ -381,8 +397,10 @@ toBString = BString . toBS
 
 testSuite :: Test
 testSuite = testGroup "Protocol/BCode"
-  [ testProperty "QC encode-decode/id" propEncodeDecodeId,
-    testCase "HUnit encode-decode/id" testDecodeEncodeProp1 ]
+  [ testProperty "QC encode-decode/id" propEncodeDecodeId
+  , testCase "HUnit encode-decode/id" testDecodeEncodeProp1
+  , testCase "HUnit trackerDictPeer/decode" testTrackerDict
+  ]
 
 propEncodeDecodeId :: BCode -> Bool
 propEncodeDecodeId bc =
@@ -397,6 +415,14 @@ testDecodeEncodeProp1 =
         decoded = decode encoded
     in
        assertEqual "for encode/decode identify" (Right testData) decoded
+
+testTrackerDict :: Assertion
+testTrackerDict =
+    let decoded = trackerDictPeers dictTestPeers
+    in assertEqual "should be the same" handDecoded decoded
+  where handDecoded = Just [ ("-CTd001-1237becaa613", "127.0.0.1", 1580)
+                           , ("-CTd001-ed4d847e2a0a", "127.0.0.1", 1579)
+                           ] 
 
 testData :: [BCode]
 testData = [BInt 123,
@@ -416,3 +442,23 @@ testData = [BInt 123,
                     ]
            ]
 
+
+
+dictTestPeers :: BCode
+dictTestPeers =
+    BDict (M.fromList
+        [ ("interval",BInt 1800)
+        , ("peers"
+        , BArray
+            [ BDict (M.fromList
+                [("id", BString "-CTd001-1237becaa613")
+                ,("ip", BString "127.0.0.1")
+                ,("port", BInt 1580)
+                ])
+            , BDict (M.fromList
+                [("id", BString "-CTd001-ed4d847e2a0a")
+                ,("ip", BString "127.0.0.1")
+                ,("port", BInt 1579)
+                ])
+            ])
+        ])

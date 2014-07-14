@@ -10,6 +10,8 @@ module Channels
     , BandwidthChannel
     , TrackerMsg(..)
     , TrackerChannel
+    , peerAddr
+    , peerId
     )
 where
 
@@ -22,7 +24,20 @@ import Network.Socket
 import Protocol.Wire
 import Torrent
 
-data NewPeer = NewPeer SockAddr -- ^ a fresh peer before the crypto handshake
+-- | an unconnected peer.
+--   a peer may come either as bin peer or dict peer. the dict peer also
+--   has a peer id associated as comes as a bencoded dictionary whereas
+--   the bin peer is only a number sequence of ip and port
+data NewPeer = NewBinPeer SockAddr -- ^ a fresh bin peer before the crypto handshake
+             | NewDictPeer PeerPeerId SockAddr -- ^ a fresh dict peer
+
+peerAddr :: NewPeer -> SockAddr
+peerAddr (NewBinPeer a) = a
+peerAddr (NewDictPeer _ a) = a
+
+peerId :: NewPeer -> PeerId
+peerId (NewBinPeer _) = "UNKNOWN"
+peerId (NewDictPeer (PPID p) _) = p
 
 data MsgTy = FromPeer (Message, Int)
            | FromSenderQ Int -- Always UpRate events

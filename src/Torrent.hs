@@ -4,6 +4,8 @@ module Torrent (
     -- * Types
       InfoHash
     , PeerId
+    , MyPeerId(MPID)
+    , PeerPeerId(PPID)
     , AnnounceURL
     , TorrentState(..)
     , TorrentInfo(..)
@@ -52,6 +54,13 @@ type InfoHash = Digest
 -- | The peerId is the ID of a client. It is used to identify clients
 --   from each other
 type PeerId   = String
+
+-- | Our PeerId
+newtype MyPeerId = MPID PeerId
+
+-- | Somebody else's peer id
+newtype PeerPeerId = PPID PeerId
+
 
 -- | The internal type of Announce URLs
 type AnnounceURL = B.ByteString
@@ -124,7 +133,7 @@ defaultOptimisticSlots = 2
 
 -- | Default port to communicate on
 defaultPort :: Word16
-defaultPort = 1579
+defaultPort = 1580
 
 -- | Convert a BCode block into its corresponding TorrentInfo block, perhaps
 --   failing in the process.
@@ -145,8 +154,8 @@ mkTorrentInfo bc = do
            return (ann, np)
 
 -- | Create a new PeerId for this client
-mkPeerId :: StdGen -> PeerId
-mkPeerId gen = header ++ take (20 - length header) ranString
+mkPeerId :: StdGen -> MyPeerId
+mkPeerId gen = MPID $ header ++ take (20 - length header) ranString
   where randomList :: Int -> StdGen -> [Int]
         randomList n = take n . unfoldr (Just . random)
         rs = randomList 10 gen

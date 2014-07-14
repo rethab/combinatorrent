@@ -31,9 +31,7 @@ import Network.HTTP hiding (port, urlEncode, urlEncodeVars)
 import Network.URI hiding (unreserved, reserved)
 import Network.Stream
 
-import Control.Exception
-
-import Prelude hiding (catch)
+import qualified Control.Exception as E
 
 import Protocol.BCode as BCode hiding (encode, announceList)
 import Process
@@ -91,13 +89,13 @@ instance Logging CF where
 data ST = ST {
         torrentInfo :: TorrentInfo
       , announceList :: [[AnnounceURL]]  -- will store it separate from TorrentInfo as it could be updated
-      , peerId :: PeerId
+      , myPeerId :: MyPeerId
       , state :: TrackerEvent
       , localPort :: Word16
       , nextTick :: Integer
       }
 
-start :: InfoHash -> TorrentInfo -> PeerId -> Word16
+start :: InfoHash -> TorrentInfo -> MyPeerId -> Word16
       -> Status.StatusChannel -> TrackerChannel -> PeerMgr.PeerMgrChannel
       -> SupervisorChannel -> IO ThreadId
 start ih ti pid port statusC msgC pc supC =
@@ -191,12 +189,27 @@ processResultDict d =
                                     "Could not decode response properly"
                                 Just rok -> rok
   where decodeOk =
-            ResponseOk <$> (decodeIps <$> BCode.trackerPeers d)
+            ResponseOk <$> (decodeBinPeers d <|> decodeDictPeers d)
                        <*> (pure $ BCode.trackerComplete d)
                        <*> (pure $ BCode.trackerIncomplete d)
                        <*> (BCode.trackerInterval d)
                        <*> (pure $ BCode.trackerMinInterval d)
 
+-- dict peers
+
+-- todo ipv6
+decodeDictPeers :: BCode -> Maybe [PeerMgr.NewPeer]
+decodeDictPeers d = map decodeDictPeer <$> BCode.trackerDictPeers d
+    where decodeDictPeer (ppid, ip, port) = PeerMgr.NewDictPeer
+                                            (PPID ppid)
+                                            (SockAddrInet
+                                                (PortNum $ fromIntegral port)
+                                                (cW32 ip))
+
+-- bin peers
+
+decodeBinPeers :: BCode -> Maybe [PeerMgr.NewPeer]
+decodeBinPeers d = decodeIps <$> BCode.trackerBinPeers d
 
 decodeIps :: (B.ByteString, B.ByteString) -> [PeerMgr.NewPeer]
 decodeIps (ipv4, ipv6) = decodeIps4 ipv4 ++ decodeIps6 ipv6
@@ -208,7 +221,7 @@ decodeIps4 bs | B.null bs = []
                         (port, r2) = B.splitAt 2 r1
                         i' = cW32 ip
                         p' = PortNum $ cW16 port
-                    in PeerMgr.NewPeer (S.SockAddrInet p' i') : decodeIps4 r2
+                    in PeerMgr.NewBinPeer (S.SockAddrInet p' i') : decodeIps4 r2
               | otherwise = [] -- Some trackers fail spectacularly
 
 decodeIps6 :: B.ByteString -> [PeerMgr.NewPeer]
@@ -218,7 +231,7 @@ decodeIps6 bs | B.null bs = []
                         (port, r2) = B.splitAt 2 r1
                         i' = cW128 ip6
                         p' = PortNum $ cW16 port
-                    in PeerMgr.NewPeer (S.SockAddrInet6 p' 0 i' 0) : decodeIps6 r2
+                    in PeerMgr.NewBinPeer (S.SockAddrInet6 p' 0 i' 0) : decodeIps6 r2
               | otherwise = [] -- Some trackers fail spectacularly
 
 cW32 :: B.ByteString -> Word32
@@ -294,8 +307,8 @@ queryTrackers ss = do alist <- gets announceList
 trackerRequest :: URI -> Process CF ST (Either String TrackerResponse)
 trackerRequest uri =
     do debugP $ "Querying URI: " ++ (show uri) 
-       resp <- liftIO $ catch (simpleHTTP request) (\e -> let err = show (e :: IOException)
-                                                          in return . Left . ErrorMisc $ err)
+       resp <- liftIO $ E.catch (simpleHTTP request) (\e -> let err = show (e :: E.IOException)
+                                                            in return . Left . ErrorMisc $ err)
        case resp of
          Left x -> do let err = "Error connecting: " ++ show x
                       debugP err
@@ -305,7 +318,7 @@ trackerRequest uri =
                (2,_,_) ->
                    case BCode.decode . toBS . rspBody $ r of
                      Left pe -> return . Left . show $ pe
-                     Right bc -> do debugP $ "Response: " ++ BCode.prettyPrint bc
+                     Right bc -> do debugP $ "Response: " ++ show bc
                                     return $ Right $ processResultDict bc
                (3,_,_) ->
                    case findHeader HdrLocation r of
@@ -363,9 +376,10 @@ buildRequestParams :: Status.StatusState -> Process CF ST [(String, String)]
 buildRequestParams ss = do
     s <- get
     p <- gets localPort
+    let (MPID mpid) = myPeerId s
     return $
       [("info_hash", map (chr . fromIntegral) . B.unpack . infoHash . torrentInfo $ s),
-       ("peer_id", peerId s),
+       ("peer_id", mpid),
        ("uploaded", show $ Status.uploaded ss),
        ("downloaded", show $ Status.downloaded ss),
        ("left", show $ Status.left ss),
