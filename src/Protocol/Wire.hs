@@ -48,7 +48,7 @@ import Test.QuickCheck
 
 import qualified Protocol.BCode as BCode (BCode, encode)
 import Torrent
-import Crypto
+import Crypto hiding (testSuite)
 
 ------------------------------------------------------------
 
@@ -277,7 +277,7 @@ receiveHeader sock sz ihTst connP = parseHeader `fmap` loop [] sz
         loop :: [B.ByteString] -> Int -> IO B.ByteString
         loop bs z | z == 0 = return . B.concat $ reverse bs
                   | otherwise = do
-                        nbs <- decrypt connP =<< recv sock z
+                        nbs <- decrypt connP =<< recv sock (normalize z)
                         when (B.length nbs == 0) $ fail "Socket is dead"
                         loop (nbs : bs) (z - B.length nbs)
 

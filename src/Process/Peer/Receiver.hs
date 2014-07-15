@@ -31,7 +31,7 @@ instance Logging CF where
 demandInput :: Int -> Process CF ConnectedPeer B.ByteString
 demandInput l = {-# SCC "demandInput" #-} do
     connP@(ConnectedPeer s _) <- get
-    bs <- liftIO $ decrypt connP =<< recv s (fromIntegral l)
+    bs <- liftIO $ decrypt connP =<< recv s (fromIntegral $ normalize l)
     when (B.null bs) stopP
     return bs
 

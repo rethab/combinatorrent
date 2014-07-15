@@ -8,6 +8,7 @@ import System.Environment ( getArgs )
 import Test.Framework
 import Test.Framework.Providers.QuickCheck2
 
+import qualified Crypto          (testSuite)
 import qualified Data.PieceSet   (testSuite)
 import qualified Data.Queue      (testSuite)
 import qualified Protocol.BCode  (testSuite)
@@ -20,6 +21,7 @@ runTests =
  do args <- filter (/= "--tests") `fmap` getArgs
     flip defaultMainWithArgs args
      [ testSuite
+     , Crypto.testSuite
      , Data.Queue.testSuite
      , Data.PieceSet.testSuite
      , Protocol.BCode.testSuite
