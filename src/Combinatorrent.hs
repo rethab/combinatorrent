@@ -88,7 +88,6 @@ progOpts args = do
 
 run :: ([Flag], [String]) -> IO ()
 run (flags, files) = do
-    putStrLn ("Flags: " ++ show flags ++ ", Files: " ++ show files)
     if Version `elem` flags
         then progHeader
         else case files of
