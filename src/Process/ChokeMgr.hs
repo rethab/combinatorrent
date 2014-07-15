@@ -21,6 +21,7 @@ import Data.Function
 import Data.List
 import qualified Data.Map as M
 import qualified Data.Set as S
+import qualified Data.ByteString as BS
 import Data.Traversable as T
 
 import Prelude hiding (log)
@@ -95,7 +96,7 @@ start ch rtv ur supC = do
            Tick          -> tick
            RemovePeer t  -> removePeer t
            AddPeer ih t pCh -> do
-                   debugP $ "Adding peer " ++ show (ih, t)
+                   debugP $ "Adding peer with InfoHash and Peer" ++ show (BS.unpack ih, t)
                    addPeer pCh ih t
            BlockComplete ih pn blk -> informBlockComplete ih pn blk
            PieceDone ih pn -> informDone ih pn
