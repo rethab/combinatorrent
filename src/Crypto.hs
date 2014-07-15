@@ -58,9 +58,11 @@ testSuite = testGroup "Crypto"
   ]
 
 testNormalizeAddToMultipleOf32 :: Assertion
-testNormalizeAddToMultipleOf32 = do
-    assertBool "32" (normalize 32 == 64)
-    assertBool "32" (normalize 64 == 96)
+testNormalizeAddToMultipleOf32 =
+    mapM_ (\(x, y) -> assertBool (show x) (normalize x == y)) vals
+ where vals = [ (x, x+norm) | x <- [0::Int, norm ..(10::Int) * norm]]
+       norm :: Int
+       norm = 32
 
 propMultipleOf32 :: Word8 -> Bool
 propMultipleOf32 x = normalize x `mod` 32 == 0
