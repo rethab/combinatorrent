@@ -1,8 +1,12 @@
 module Crypto where
 
+import Control.Applicative ((<$>))
+
 import qualified Data.ByteString as BS
 import qualified Data.ByteString.Lazy as LBS
-import qualified Habi as Habi
+
+import Habi
+
 import Network.Socket (Socket)
 
 type Fpr = BS.ByteString
@@ -13,23 +17,19 @@ data CryptoCtx = CryptoCtx { _homedir :: String, _fpr :: BS.ByteString }
 
 handshakeSeeder :: Socket -> CryptoCtx -> IO (Either String ConnectedPeer)
 handshakeSeeder s (CryptoCtx h fpr) =
-    mapE show (ConnectedPeer s) `fmap` Habi.seederHandshake s h fpr
+    mapE show (ConnectedPeer s) <$> seederHandshake s h fpr
 
 handshakeLeecher :: Socket -> CryptoCtx -> IO (Either String ConnectedPeer)
 handshakeLeecher s (CryptoCtx h fpr) = 
-    mapE show (ConnectedPeer s) `fmap` Habi.leecherHandshake s h fpr
+    mapE show (ConnectedPeer s) <$> leecherHandshake s h fpr
 
-encrypt :: ConnectedPeer -> BS.ByteString -> BS.ByteString
-encrypt = undefined
+encryptL :: ConnectedPeer -> LBS.ByteString -> IO LBS.ByteString
+encryptL (ConnectedPeer _ key) plain =
+    either error LBS.fromStrict <$> symmetricEncrypt key newIV (LBS.toStrict plain)
 
-encryptL :: ConnectedPeer -> LBS.ByteString -> LBS.ByteString
-encryptL = undefined
-
-decrypt :: ConnectedPeer -> BS.ByteString -> BS.ByteString
-decrypt = undefined
-
-decryptL :: ConnectedPeer -> LBS.ByteString -> LBS.ByteString
-decryptL = undefined
+decrypt :: ConnectedPeer -> BS.ByteString -> IO BS.ByteString
+decrypt (ConnectedPeer _ key) cipher =
+    either error id <$> symmetricDecrypt key newIV cipher
 
 mapE :: (e -> e') -> (a -> b) -> Either e a -> Either e' b
 mapE lf _ (Left e)  = Left (lf e)

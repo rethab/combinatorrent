@@ -35,6 +35,6 @@ pgm = do
    connP@(ConnectedPeer s _) <- asks sock
    _ <- liftIO $ do
       r <- atomically $ takeTMVar ch
-      sendAll s (encryptL connP r)
+      sendAll s =<< encryptL connP r
    pgm
 

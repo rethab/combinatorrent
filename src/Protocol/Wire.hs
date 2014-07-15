@@ -277,7 +277,7 @@ receiveHeader sock sz ihTst connP = parseHeader `fmap` loop [] sz
         loop :: [B.ByteString] -> Int -> IO B.ByteString
         loop bs z | z == 0 = return . B.concat $ reverse bs
                   | otherwise = do
-                        nbs <- decrypt connP `fmap` recv sock z
+                        nbs <- decrypt connP =<< recv sock z
                         when (B.length nbs == 0) $ fail "Socket is dead"
                         loop (nbs : bs) (z - B.length nbs)
 
@@ -310,7 +310,7 @@ initiateHandshake :: Socket -> MyPeerId -> InfoHash -> ConnectedPeer
                   -> IO (Either String ([Capabilities], L.ByteString, InfoHash))
 initiateHandshake sock (MPID myPeerId) infohash connP = do
     debugM "Protocol.Wire" "Sending off handshake message"
-    _ <- Lz.send sock $ encryptL connP msg
+    _ <- Lz.send sock =<< encryptL connP msg
     debugM "Protocol.Wire" "Receiving handshake from other end"
     receiveHeader sock sz (== infohash) connP
   where msg = handShakeMessage myPeerId infohash
@@ -333,7 +333,7 @@ receiveHandshake s pid ihTst connP = do
         Left err -> return $ Left err
         Right (caps, rpid, ih) ->
             do debugM "Protocol.Wire" "Sending back handshake message"
-               _ <- Lz.send s (encryptL connP $ msg ih)
+               _ <- Lz.send s =<< encryptL connP (msg ih)
                return $ Right (caps, rpid, ih)
   where msg ih = handShakeMessage pid ih
         sz = fromIntegral (L.length $ msg (B.pack $ replicate 20 32)) -- Dummy value
