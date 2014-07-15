@@ -197,7 +197,8 @@ connect port cctx (peer, pid, ih) pool mgrC rtv cmap =
                         ++ show (_fpr cctx)
             eConnP <- handshakeLeecher sock cctx
             case eConnP of
-                Left e -> do debugM "Process.PeerMgr.connect" ("Crypto Handshake failed: " ++ e)
+                Left e -> do debugM "Process.PeerMgr.connect"
+                                    ("Crypto Handshake with " ++ show theirPid ++ " failed: " ++ e)
                              return ()
                 Right connP -> bHandshakeAndSpawn connP sock addr
         bHandshakeAndSpawn connP sock addr = do
@@ -206,7 +207,7 @@ connect port cctx (peer, pid, ih) pool mgrC rtv cmap =
             debugM "Process.PeerMgr.connect" "Handshake run"
             case r of
               Left err -> do debugM "Process.PeerMgr.connect"
-                                ("Peer handshake failure at host " ++ show addr
+                                ("Peer handshake (Connect) failure at host " ++ show addr
                                   ++ " with error " ++ err)
                              return ()
               Right (caps, _rpid, ihsh) ->
@@ -235,7 +236,7 @@ acceptor port cctx (s,sa) pool (MPID pid) mgrC rtv cmmap =
                         ++ show (_fpr cctx)
             eConnP <- handshakeSeeder s cctx
             case eConnP of
-                Left e -> do debugLog ("Crypto Handshake failed: " ++ e)
+                Left e -> do debugLog ("Crypto Handshake (Acceptor) failed: " ++ e)
                              return ()
                 Right connP -> bHandshakeAndSpawn connP
         bHandshakeAndSpawn connP = do
