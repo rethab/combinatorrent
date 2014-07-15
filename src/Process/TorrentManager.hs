@@ -37,7 +37,8 @@ data TorrentManagerMsg = AddedTorrent FilePath
 
 type TorrentMgrChan = TChan [TorrentManagerMsg]
 
-data CF = CF { tCh :: TorrentMgrChan
+data CF = CF { myPort :: Port
+             , tCh :: TorrentMgrChan
              , tStatusCh    :: Status.StatusChannel
              , tStatusTV    :: TVar [Status.PStat]
              , tPeerId      :: MyPeerId
@@ -49,7 +50,8 @@ instance Logging CF where
   logName _ = "Process.TorrentManager"
 
 data ST = ST { workQueue :: [TorrentManagerMsg] }
-start :: TorrentMgrChan -- ^ Channel to watch for changes to torrents
+start :: Port
+      -> TorrentMgrChan -- ^ Channel to watch for changes to torrents
       -> Status.StatusChannel
       -> TVar [Status.PStat]
       -> ChokeMgr.ChokeMgrChannel
@@ -57,8 +59,8 @@ start :: TorrentMgrChan -- ^ Channel to watch for changes to torrents
       -> PeerMgr.PeerMgrChannel
       -> SupervisorChannel
       -> IO ThreadId
-start chan statusC stv chokeC pid peerC supC =
-    spawnP (CF chan statusC stv pid peerC chokeC) (ST [])
+start port chan statusC stv chokeC pid peerC supC =
+    spawnP (CF port chan statusC stv pid peerC chokeC) (ST [])
                 ({-# SCC "TorrentManager" #-} catchP pgm (defaultStopHandler supC))
   where pgm = startStop >> dirMsg >> pgm
         dirMsg = do
@@ -101,22 +103,23 @@ startTorrent fp = do
 
 startTorrent' :: [Char] -> BCode -> TorrentInfo -> Process CF ST ThreadId
 startTorrent' fp bc ti = do
-    fspC     <- liftIO newTChanIO
-    trackerC <- liftIO newTChanIO
-    supC     <- liftIO newTChanIO
-    pieceMgrC  <- liftIO newTChanIO
-    chokeC  <- asks tChokeCh
-    statusC <- asks tStatusCh
-    stv <- asks tStatusTV
-    pid     <- asks tPeerId
-    pmC     <- asks tPeerMgrCh
+    fspC      <- liftIO newTChanIO
+    trackerC  <- liftIO newTChanIO
+    supC      <- liftIO newTChanIO
+    pieceMgrC <- liftIO newTChanIO
+    chokeC    <- asks tChokeCh
+    statusC   <- asks tStatusCh
+    stv       <- asks tStatusTV
+    pid       <- asks tPeerId
+    pmC       <- asks tPeerMgrCh
+    port      <- asks myPort
     (handles, haveMap, pieceMap) <- liftIO $ openAndCheckFile bc
     let left = bytesLeft haveMap pieceMap
     pieceDb <- PieceMgr.createPieceDb haveMap pieceMap
     (tid, _) <- liftIO $ allForOne ("TorrentSup - " ++ fp)
                      [ Worker $ FSP.start handles pieceMap fspC
                      , Worker $ PieceMgr.start pieceMgrC fspC chokeC statusC pieceDb (infoHash ti)
-                     , Worker $ Tracker.start (infoHash ti) ti pid defaultPort statusC trackerC pmC
+                     , Worker $ Tracker.start (infoHash ti) ti pid port statusC trackerC pmC
                      ] supC
     liftIO . atomically $ writeTChan statusC $ Status.InsertTorrent (infoHash ti) left trackerC
     c <- asks tPeerMgrCh

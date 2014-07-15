@@ -17,19 +17,20 @@ import Network.BSD
 import Process
 import Process.PeerMgr hiding (start)
 import Supervisor
+import Torrent
 
 data CF = CF { peerMgrCh :: PeerMgrChannel }
 
 instance Logging CF where
     logName _ = "Process.Listen"
 
-start :: Word16 -> PeerMgrChannel -> SupervisorChannel -> IO ThreadId
+start :: Port -> PeerMgrChannel -> SupervisorChannel -> IO ThreadId
 start port peerMgrC supC = do
     spawnP (CF peerMgrC) () ({-# SCC "Listen" #-} catchP (openListen port >>= eventLoop)
                         (defaultStopHandler supC)) -- TODO: Close socket resource!
 
-openListen :: Word16 -> Process CF () Socket
-openListen port = liftIO $ do
+openListen :: Port -> Process CF () Socket
+openListen (P port) = liftIO $ do
     proto <- getProtocolNumber "tcp"
     bracketOnError
         (socket AF_INET Stream proto)

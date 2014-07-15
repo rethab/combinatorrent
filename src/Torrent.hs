@@ -6,6 +6,7 @@ module Torrent (
     , PeerId
     , MyPeerId(MPID)
     , PeerPeerId(PPID)
+    , Port(P)
     , AnnounceURL
     , TorrentState(..)
     , TorrentInfo(..)
@@ -21,7 +22,6 @@ module Torrent (
     , bytesLeft
     , defaultBlockSize
     , defaultOptimisticSlots
-    , defaultPort
     , mkPeerId
     , mkTorrentInfo
     )
@@ -61,6 +61,8 @@ newtype MyPeerId = MPID PeerId deriving (Show, Eq)
 -- | Somebody else's peer id
 newtype PeerPeerId = PPID PeerId deriving (Show, Eq)
 
+-- | The port we listen on
+newtype Port = P Word16
 
 -- | The internal type of Announce URLs
 type AnnounceURL = B.ByteString
@@ -130,10 +132,6 @@ defaultBlockSize = 16384 -- Bytes
 -- | Default number of optimistic slots
 defaultOptimisticSlots :: Int
 defaultOptimisticSlots = 2
-
--- | Default port to communicate on
-defaultPort :: Word16
-defaultPort = 1579
 
 -- | Convert a BCode block into its corresponding TorrentInfo block, perhaps
 --   failing in the process.

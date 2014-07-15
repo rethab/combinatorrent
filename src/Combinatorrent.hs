@@ -48,6 +48,7 @@ data Flag = Version
           | LogFile FilePath
           | WatchDir FilePath
           | StatFile FilePath
+          | PortArg String
           | GpgHomedir FilePath
           | GpgFingerprint String
   deriving (Eq, Show)
@@ -59,6 +60,7 @@ options =
   , Option []               ["logfile"] (ReqArg LogFile "FILE") "Choose a filepath on which to log"
   , Option ['W']            ["watchdir"] (ReqArg WatchDir "DIR") "Choose a directory to watch for torrents"
   , Option ['S']            ["statfile"] (ReqArg StatFile "FILE") "Choose a file to gather stats into"
+  , Option ['P']            ["port"]    (ReqArg PortArg "PORT") "Chose a port to listen on"
   , Option ['H']            ["homedir"] (ReqArg GpgHomedir "DIR") "Specify the GPG Homedir"
   , Option ['F']            ["fingerprint"] (ReqArg GpgFingerprint "DIR") "The fingerprint to use"
   ]
@@ -69,6 +71,7 @@ Debug ~= Debug = True
 LogFile _ ~= LogFile _ = True
 WatchDir _ ~= WatchDir _ = True
 StatFile _ ~= StatFile _ = True
+PortArg _ ~= PortArg _ = True
 GpgHomedir _ ~= GpgHomedir _ = True
 GpgFingerprint _ ~= GpgFingerprint _ = True
 _ ~= _ = False
@@ -85,6 +88,7 @@ progOpts args = do
 
 run :: ([Flag], [String]) -> IO ()
 run (flags, files) = do
+    putStrLn ("Flags: " ++ show flags ++ ", Files: " ++ show files)
     if Version `elem` flags
         then progHeader
         else case files of
@@ -143,9 +147,14 @@ cryptoSetup flags = do
     unless valid (error "GpgHomedir must exist")
     return $ CryptoCtx homedir (Char8.pack fpr)
 
+getPort :: [Flag] -> Port
+getPort flags =
+    maybe undefined (\(PortArg p) -> P $ read p) $ flag (PortArg undefined) flags
+
 download :: [Flag] -> [String] -> IO ()
 download flags names = do
     cryptoCtx <- cryptoSetup flags
+    let port = getPort flags
     setupLogging flags
     watchC <- liftIO newTChanIO
     workersWatch <- setupDirWatching flags watchC
@@ -162,11 +171,11 @@ download flags names = do
     (tid, _) <- allForOne "MainSup"
               (workersWatch ++
               [ Worker $ Console.start waitC statusC
-              , Worker $ TorrentManager.start watchC statusC stv chokeC pid pmC
+              , Worker $ TorrentManager.start port watchC statusC stv chokeC pid pmC
               , setupStatus flags statusC stv
-              , Worker $ PeerMgr.start cryptoCtx pmC pid chokeC rtv
+              , Worker $ PeerMgr.start port cryptoCtx pmC pid chokeC rtv
               , Worker $ ChokeMgr.start chokeC rtv 100 -- 100 is upload rate in KB
-              , Worker $ Listen.start defaultPort pmC
+              , Worker $ Listen.start port pmC
               ]) supC
     atomically $ writeTChan watchC (map TorrentManager.AddedTorrent names)
     _ <- atomically $ takeTMVar waitC

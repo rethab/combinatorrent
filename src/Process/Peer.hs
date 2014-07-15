@@ -62,23 +62,24 @@ import qualified Process.Peer.Receiver as Receiver
 -- INTERFACE
 ----------------------------------------------------------------------
 
-start :: ConnectedPeer -> [Capabilities] -> MgrChannel -> ChokeMgr.RateTVar -> PieceMgrChannel
+start :: ConnectedPeer -> Port -> [Capabilities] -> MgrChannel -> ChokeMgr.RateTVar -> PieceMgrChannel
              -> FSPChannel -> TVar [PStat] -> PieceMap -> Int -> InfoHash
              -> IO Children
-start s caps pMgrC rtv pieceMgrC fsC stv pm nPieces ih = do
+start connP port caps pMgrC rtv pieceMgrC fsC stv pm nPieces ih = do
     queueC <- newTChanIO
     senderMV <- newEmptyTMVarIO
     receiverC <- newTChanIO
-    return [Worker $ Sender.start s senderMV,
+    return [Worker $ Sender.start connP senderMV,
             Worker $ SenderQ.start caps queueC senderMV receiverC fsC,
-            Worker $ Receiver.start s receiverC,
-            Worker $ peerP caps pMgrC rtv pieceMgrC pm nPieces
+            Worker $ Receiver.start connP receiverC,
+            Worker $ peerP port caps pMgrC rtv pieceMgrC pm nPieces
                                 queueC receiverC stv ih]
 
 -- INTERNAL FUNCTIONS
 ----------------------------------------------------------------------
 
-data CF = CF { inCh :: TChan MsgTy
+data CF = CF { myPort :: Port
+             , inCh :: TChan MsgTy
              , outCh :: TChan SenderQ.SenderQMsg
              , peerMgrCh :: MgrChannel
              , pieceMgrCh :: PieceMgrChannel
@@ -213,10 +214,11 @@ noExtendedMsg :: Process CF ST ()
 noExtendedMsg = return () -- Deliberately ignore the extended message
 
 outputExtendedMsg :: Process CF ST ()
-outputExtendedMsg = outChan $ SenderQ.SenderQM $ ExtendedMsg 0 em
-  where em = BCode.encode (BCode.extendedMsg (fromIntegral defaultPort)
-                                             ("Combinatorrent " ++ Version.version)
-                                             250)
+outputExtendedMsg = do P p <- asks myPort 
+                       outChan $ SenderQ.SenderQM $ ExtendedMsg 0 (em p)
+  where em p = BCode.encode (BCode.extendedMsg (fromIntegral p)
+                                               ("Combinatorrent " ++ Version.version)
+                                               250)
         -- 250 is what most other clients default to.
 
 ignoreSuggest :: PieceNum -> Process CF ST ()
@@ -255,18 +257,17 @@ errorExtendedMsg _ _ = do
     errorP "Received an EXTENDED MESSAGE, but the extension is not enabled"
     stopP
 
-peerP :: [Capabilities] -> MgrChannel -> ChokeMgr.RateTVar -> PieceMgrChannel -> PieceMap -> Int
+peerP :: Port -> [Capabilities] -> MgrChannel -> ChokeMgr.RateTVar -> PieceMgrChannel -> PieceMap -> Int
          -> TChan SenderQ.SenderQMsg -> TChan MsgTy -> TVar [PStat] -> InfoHash
          -> SupervisorChannel -> IO ThreadId
-peerP caps pMgrC rtv pieceMgrC pm nPieces outBound inBound stv ih supC = do
+peerP port caps pMgrC rtv pieceMgrC pm nPieces outBound inBound stv ih supC = do
     ct <- getCurrentTime
     pdtmv <- newEmptyTMVarIO
     havetv <- newEmptyTMVarIO
     gbtmv <- newEmptyTMVarIO
     pieceSet <- PS.new nPieces
     let cs = configCapabilities caps
-    spawnP (CF inBound outBound pMgrC pieceMgrC stv rtv ih pm
-                    pdtmv havetv gbtmv cs)
+    spawnP (CF port inBound outBound pMgrC pieceMgrC stv rtv ih pm pdtmv havetv gbtmv cs)
            (ST True False S.empty True False pieceSet nPieces
                     (RC.new ct) (RC.new ct) False 0 0 S.empty 0)
                        (cleanupP (startup nPieces) (defaultStopHandler supC) cleanup)

@@ -56,7 +56,8 @@ instance NFData ThreadId where
 type PeerMgrChannel = TChan PeerMgrMsg
 
 -- Reader Environment
-data CF = CF { peerCh :: PeerMgrChannel
+data CF = CF { myPort :: Port
+             , peerCh :: PeerMgrChannel
              , mgrCh :: MgrChannel
              , peerPool :: SupervisorChannel
              , chokeMgrCh :: ChokeMgrChannel
@@ -77,14 +78,14 @@ data ST = ST { peersInQueue  :: ![(InfoHash, NewPeer)]
              , cmMap ::         !ChanManageMap
              }
 
-start :: CryptoCtx -> PeerMgrChannel -> MyPeerId
+start :: Port -> CryptoCtx -> PeerMgrChannel -> MyPeerId
       -> ChokeMgrChannel -> RateTVar -> SupervisorChannel
       -> IO ThreadId
-start cctx ch pid chokeMgrC rtv supC =
+start port cctx ch pid chokeMgrC rtv supC =
     do mgrC <- newTChanIO
        fakeChan <- newTChanIO
        pool <- liftM snd $ oneForOne "PeerPool" [] fakeChan
-       spawnP (CF ch mgrC pool chokeMgrC rtv cctx)
+       spawnP (CF port ch mgrC pool chokeMgrC rtv cctx)
               (ST [] M.empty pid cmap) ({-# SCC "PeerMgr" #-} catchP lp
                                        (defaultStopHandler supC))
   where
@@ -163,7 +164,8 @@ addPeer (ih, peer) = do
     cm   <- gets cmMap
     v    <- asks chokeRTV
     cctx <- asks cryptoCtx
-    liftIO $ connect cctx (peer, ppid, ih) pool mgrC v cm
+    port <- asks myPort
+    liftIO $ connect port cctx (peer, ppid, ih) pool mgrC v cm
 
 addIncoming :: (Sock.Socket, Sock.SockAddr) -> Process CF ST ThreadId
 addIncoming conn = do
@@ -173,13 +175,15 @@ addIncoming conn = do
     v    <- asks chokeRTV
     cm   <- gets cmMap
     cctx <- asks cryptoCtx
-    liftIO $ acceptor cctx conn pool ppid mgrC v cm
+    port <- asks myPort
+    liftIO $ acceptor port cctx conn pool ppid mgrC v cm
 
 type ConnectRecord = (NewPeer, MyPeerId, InfoHash)
 
-connect :: CryptoCtx -> ConnectRecord -> SupervisorChannel -> MgrChannel -> RateTVar -> ChanManageMap
+connect :: Port -> CryptoCtx -> ConnectRecord
+        -> SupervisorChannel -> MgrChannel -> RateTVar -> ChanManageMap
         -> IO ThreadId
-connect cctx (peer, pid, ih) pool mgrC rtv cmap =
+connect port cctx (peer, pid, ih) pool mgrC rtv cmap =
     forkIO (connector >> return ())
   where 
         connector = {-# SCC "connect" #-}
@@ -210,18 +214,18 @@ connect cctx (peer, pid, ih) pool mgrC rtv cmap =
                      let tc = case M.lookup ihsh cmap of
                                     Nothing -> error "Impossible (2), I hope"
                                     Just x  -> x
-                     children <- Peer.start connP caps mgrC rtv
-                                                      (tcPcMgrCh tc) (tcFSCh tc) (tcStatTV tc)
-                                                      (tcPM tc) (succ . snd . bounds $ tcPM tc)
-                                                      ihsh
+                     children <- Peer.start connP port caps mgrC rtv
+                                            (tcPcMgrCh tc) (tcFSCh tc) (tcStatTV tc)
+                                            (tcPM tc) (succ . snd . bounds $ tcPM tc)
+                                            ihsh
                      atomically $ writeTChan pool $
                         SpawnNew (Supervisor $ allForOne "PeerSup" children)
                      return ()
 
-acceptor :: CryptoCtx -> (Sock.Socket, Sock.SockAddr) -> SupervisorChannel
+acceptor :: Port -> CryptoCtx -> (Sock.Socket, Sock.SockAddr) -> SupervisorChannel
          -> MyPeerId -> MgrChannel -> RateTVar -> ChanManageMap
          -> IO ThreadId
-acceptor cctx (s,sa) pool (MPID pid) mgrC rtv cmmap =
+acceptor port cctx (s,sa) pool (MPID pid) mgrC rtv cmmap =
     forkIO (connector >> return ())
   where ihTst k = M.member k cmmap
         connector = {-# SCC "acceptor" #-} do
@@ -246,9 +250,9 @@ acceptor cctx (s,sa) pool (MPID pid) mgrC rtv cmmap =
                        let tc = case M.lookup ih cmmap of
                                    Nothing -> error "Impossible, I hope"
                                    Just x  -> x
-                       children <- Peer.start connP caps mgrC rtv (tcPcMgrCh tc) (tcFSCh tc)
-                                                           (tcStatTV tc) (tcPM tc)
-                                                           (succ . snd . bounds $ tcPM tc) ih
+                       children <- Peer.start connP port caps mgrC rtv (tcPcMgrCh tc) (tcFSCh tc)
+                                              (tcStatTV tc) (tcPM tc)
+                                              (succ . snd . bounds $ tcPM tc) ih
                        atomically $ writeTChan pool $
                                SpawnNew (Supervisor $ allForOne "PeerSup" children)
                        return ()

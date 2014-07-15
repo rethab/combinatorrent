@@ -82,7 +82,8 @@ failTimerInterval = 15 * 60
 
 -- | Configuration of the tracker process
 data CF = CF {
-        statusPCh :: Status.StatusChannel
+        myPort :: Port
+      , statusPCh :: Status.StatusChannel
       , trackerMsgCh :: TrackerChannel
       , peerMgrCh :: PeerMgr.PeerMgrChannel
       , cfInfoHash :: InfoHash
@@ -97,15 +98,14 @@ data ST = ST {
       , announceList :: [[AnnounceURL]]  -- will store it separate from TorrentInfo as it could be updated
       , myPeerId :: MyPeerId
       , state :: TrackerEvent
-      , localPort :: Word16
       , nextTick :: Integer
       }
 
-start :: InfoHash -> TorrentInfo -> MyPeerId -> Word16
+start :: InfoHash -> TorrentInfo -> MyPeerId -> Port
       -> Status.StatusChannel -> TrackerChannel -> PeerMgr.PeerMgrChannel
       -> SupervisorChannel -> IO ThreadId
 start ih ti pid port statusC msgC pc supC =
-       spawnP (CF statusC msgC pc ih) (ST ti (announceURLs ti) pid Stopped port 0)
+       spawnP (CF port statusC msgC pc ih) (ST ti (announceURLs ti) pid Stopped 0)
                     ({-# SCC "Tracker" #-} cleanupP loop
                         (defaultStopHandler supC)
                         stopEvent)
@@ -398,7 +398,7 @@ urlEncodeVars [] = []
 buildRequestParams :: Status.StatusState -> Process CF ST [(String, String)]
 buildRequestParams ss = do
     s <- get
-    p <- gets localPort
+    P p <- asks myPort
     let (MPID mpid) = myPeerId s
     return $
       [("info_hash", map (chr . fromIntegral) . B.unpack . infoHash . torrentInfo $ s),
