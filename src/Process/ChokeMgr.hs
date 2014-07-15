@@ -96,7 +96,7 @@ start ch rtv ur supC = do
            Tick          -> tick
            RemovePeer t  -> removePeer t
            AddPeer ih t pCh -> do
-                   debugP $ "Adding peer with InfoHash and Peer" ++ show (BS.unpack ih, t)
+                   debugP $ "Adding peer with InfoHash and ThreadID" ++ show (BS.unpack ih, t)
                    addPeer pCh ih t
            BlockComplete ih pn blk -> informBlockComplete ih pn blk
            PieceDone ih pn -> informDone ih pn
