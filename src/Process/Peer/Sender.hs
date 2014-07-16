@@ -25,16 +25,16 @@ instance Logging CF where
 
 -- | The raw sender process, it does nothing but send out what it syncs on.
 start :: ConnectedPeer -> TMVar L.ByteString -> SupervisorChannel -> IO ThreadId
-start connP@(ConnectedPeer s _) ch supC = spawnP (CF ch connP) () ({-# SCC "Sender" #-}
-                                          (cleanupP pgm
-                                            (defaultStopHandler supC)
-                                            (liftIO $ sClose s)))
+start connP ch supC = spawnP (CF ch connP) () ({-# SCC "Sender" #-}
+                             (cleanupP pgm
+                             (defaultStopHandler supC)
+                             (liftIO $ sClose $ cpSocket connP)))
 pgm :: Process CF () ()
 pgm = do
    ch <- asks chan
-   connP@(ConnectedPeer s _) <- asks sock
+   connP <- asks sock
    _ <- liftIO $ do
       r <- atomically $ takeTMVar ch
-      sendAll s =<< encryptL connP r
+      sendAll (cpSocket connP) =<< encryptL connP r
    pgm
 

@@ -8,8 +8,6 @@ import Control.Concurrent.STM
 import Control.Exception (bracketOnError)
 import Control.Monad.Reader
 
-import Data.Word
-
 import Network hiding (accept, sClose)
 import Network.Socket
 import Network.BSD

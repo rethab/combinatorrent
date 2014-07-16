@@ -1,6 +1,7 @@
 module Crypto where
 
 import Control.Applicative ((<$>))
+import Control.Concurrent (MVar, newMVar, modifyMVar)
 import Data.Word (Word8)
 
 import qualified Data.ByteString as BS
@@ -17,25 +18,46 @@ import Test.HUnit hiding (Path, Test)
 
 type Fpr = BS.ByteString
 type SessionKey = BS.ByteString
-data ConnectedPeer = ConnectedPeer Socket SessionKey
+
+data ConnectedPeer = ConnectedPeer {
+      cpSocket :: Socket     -- ^ connection to peer
+    , cpSessKey :: SessionKey -- ^ key for symmetric encryption
+    , cpIVMar :: (MVar IV)  -- ^ initialization vector
+}
 
 data CryptoCtx = CryptoCtx { _homedir :: String, _fpr :: BS.ByteString }
 
 handshakeSeeder :: Socket -> CryptoCtx -> IO (Either String ConnectedPeer)
-handshakeSeeder s (CryptoCtx h fpr) =
-    mapE show (ConnectedPeer s) <$> seederHandshake s h fpr
+handshakeSeeder = runHS seederHandshake
 
 handshakeLeecher :: Socket -> CryptoCtx -> IO (Either String ConnectedPeer)
-handshakeLeecher s (CryptoCtx h fpr) = 
-    mapE show (ConnectedPeer s) <$> leecherHandshake s h fpr
+handshakeLeecher = runHS leecherHandshake
+
+runHS :: (Socket -> String -> Fpr -> IO (Either Error SessionKey))
+       -> Socket -> CryptoCtx-> IO (Either String ConnectedPeer)
+runHS hs s (CryptoCtx h fpr) = do
+    eSessK <- hs s h fpr
+    case eSessK of
+        Left err -> return (Left $ show err)
+        Right sessK -> Right <$> mkConnPeer s sessK
+
+mkConnPeer :: Socket -> SessionKey -> IO ConnectedPeer
+mkConnPeer s k = ConnectedPeer s k <$> newMVar newIV
 
 encryptL :: ConnectedPeer -> LBS.ByteString -> IO LBS.ByteString
-encryptL (ConnectedPeer _ key) plain =
-    either error LBS.fromStrict <$> symmetricEncrypt key newIV (LBS.toStrict plain)
+encryptL (ConnectedPeer _ key ivVar) plain = do
+    iv <- modifyMVar ivVar incIV
+    cipher <- symmetricEncrypt key iv (LBS.toStrict plain)
+    return (either error LBS.fromStrict cipher)
 
 decrypt :: ConnectedPeer -> BS.ByteString -> IO BS.ByteString
-decrypt (ConnectedPeer _ key) cipher =
-    either error id <$> symmetricDecrypt key newIV cipher
+decrypt (ConnectedPeer _ key ivVar) cipher = do
+    iv <- modifyMVar ivVar incIV
+    plain <- symmetricDecrypt key iv cipher
+    return (either error id plain)
+
+incIV :: IV -> IO (IV, IV)
+incIV iv = return (incrementIV iv, incrementIV iv)
 
 normalize :: (Integral a) => a -> a
 normalize 0 = 32
