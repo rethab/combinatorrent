@@ -1,3 +1,4 @@
+{-# LANGUAGE OverloadedStrings #-}
 module Crypto where
 
 import Control.Applicative ((<$>))
@@ -75,6 +76,9 @@ testSuite :: Test
 testSuite = testGroup "Crypto"
   [ testProperty "QC normalize/multipleOf32" propMultipleOf32
   , testCase "HUnit normalize/alsoAddIfAlreadyMod32" testNormalizeAddToMultipleOf32
+  , testCase "HUnit symEncrypion/contToWork" testSymmEncryptionCont
+  , testCase "HUnit symEncrypion/bothWays" testSymmEncryptionBothWays
+  , testCase "HUnit symEncrypion/changeIV" testSymmEncryptionIV
   ]
 
 testNormalizeAddToMultipleOf32 :: Assertion
@@ -83,6 +87,47 @@ testNormalizeAddToMultipleOf32 =
  where vals = [ (x, x+norm) | x <- [0::Int, norm ..(10::Int) * norm]]
        norm :: Int
        norm = 32
+
+testSymmEncryptionCont :: Assertion
+testSymmEncryptionCont = do
+    sessKey <- randomSessionKey
+    p1 <- mkConnPeer undefined sessKey 
+    p2 <- mkConnPeer undefined sessKey 
+
+    cipher1 <- encryptL p1 "abc"
+    plain1 <- decrypt p2 $ LBS.toStrict cipher1
+    assertEqual "should decrypt to same" "abc" plain1
+
+    cipher2 <- encryptL p1 "def"
+    plain2 <- decrypt p2 $ LBS.toStrict cipher2
+    assertEqual "should decrypt to same" "def" plain2
+
+-- first a then b
+testSymmEncryptionBothWays :: Assertion
+testSymmEncryptionBothWays = do
+    sessKey <- randomSessionKey
+    p1 <- mkConnPeer undefined sessKey 
+    p2 <- mkConnPeer undefined sessKey 
+
+    cipher1 <- encryptL p1 "abc"
+    plain1 <- decrypt p2 $ LBS.toStrict cipher1
+    assertEqual "should decrypt to same" "abc" plain1
+
+    cipher2 <- encryptL p2 "def"
+    plain2 <- decrypt p1 $ LBS.toStrict cipher2
+    assertEqual "should decrypt to same" "def" plain2
+
+-- iv must change
+testSymmEncryptionIV :: Assertion
+testSymmEncryptionIV = do
+    sessKey <- randomSessionKey
+    p1 <- mkConnPeer undefined sessKey 
+
+    cipher1 <- encryptL p1 "abc"
+
+    cipher2 <- encryptL p1 "abc"
+    assertBool "should encrypt to different ciphers" (cipher1 /= cipher2)
+    
 
 propMultipleOf32 :: Word8 -> Bool
 propMultipleOf32 x = normalize x `mod` 32 == 0
