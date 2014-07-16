@@ -55,14 +55,12 @@ mkConnPeer t s k = ConnectedPeer s k <$> mkIVMVarE t <*> mkIVMVarD t
 encryptL :: ConnectedPeer -> LBS.ByteString -> IO LBS.ByteString
 encryptL (ConnectedPeer _ key ivVar _) plain = do
     iv <- modifyMVar ivVar incIV
-    putStrLn $ "Using " ++ show iv ++ " for encryption"
     cipher <- symmetricEncrypt key iv (LBS.toStrict plain)
     return (either error LBS.fromStrict cipher)
 
 decrypt :: ConnectedPeer -> BS.ByteString -> IO BS.ByteString
 decrypt (ConnectedPeer _ key _ ivVar) cipher = do
     iv <- modifyMVar ivVar incIV
-    putStrLn $ "Using " ++ show iv ++ " for decryption"
     plain <- symmetricDecrypt key iv cipher
     return (either error id plain)
 
