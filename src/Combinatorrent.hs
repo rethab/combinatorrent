@@ -55,14 +55,14 @@ data Flag = Version
 
 options :: [OptDescr Flag]
 options =
-  [ Option ['V','?']        ["version"] (NoArg Version)         "Show version number"
-  , Option ['D']            ["debug"]   (NoArg Debug)           "Spew extra debug information"
-  , Option []               ["logfile"] (ReqArg LogFile "FILE") "Choose a filepath on which to log"
-  , Option ['W']            ["watchdir"] (ReqArg WatchDir "DIR") "Choose a directory to watch for torrents"
-  , Option ['S']            ["statfile"] (ReqArg StatFile "FILE") "Choose a file to gather stats into"
-  , Option ['P']            ["port"]    (ReqArg PortArg "PORT") "Chose a port to listen on"
-  , Option ['H']            ["homedir"] (ReqArg GpgHomedir "DIR") "Specify the GPG Homedir"
-  , Option ['F']            ["fingerprint"] (ReqArg GpgFingerprint "DIR") "The fingerprint to use"
+  [ Option "V?"           ["version"] (NoArg Version)         "Show version number"
+  , Option "D"            ["debug"]   (NoArg Debug)           "Spew extra debug information"
+  , Option ""             ["logfile"] (ReqArg LogFile "FILE") "Choose a filepath on which to log"
+  , Option "W"            ["watchdir"] (ReqArg WatchDir "DIR") "Choose a directory to watch for torrents"
+  , Option "S"            ["statfile"] (ReqArg StatFile "FILE") "Choose a file to gather stats into"
+  , Option "P"            ["port"]    (ReqArg PortArg "PORT") "Chose a port to listen on"
+  , Option "H"            ["homedir"] (ReqArg GpgHomedir "DIR") "Specify the GPG Homedir"
+  , Option "F"            ["fingerprint"] (ReqArg GpgFingerprint "DIR") "The fingerprint to use"
   ]
 
 (~=) :: Flag -> Flag -> Bool
@@ -80,14 +80,14 @@ flag :: Flag -> [Flag] -> Maybe Flag
 flag x = find (x ~=)
 
 progOpts :: [String] -> IO ([Flag], [String])
-progOpts args = do
+progOpts args =
     case getOpt Permute options args of
         (o,n,[]  ) -> return (o, n)
         (_,_,errs) -> ioError (userError (concat errs ++ usageInfo header options))
   where header = "Usage: Combinatorrent [OPTION...] file"
 
 run :: ([Flag], [String]) -> IO ()
-run (flags, files) = do
+run (flags, files) =
     if Version `elem` flags
         then progHeader
         else case files of
@@ -106,17 +106,17 @@ setupLogging flags = do
                 Just _ -> error "Impossible match"
     when (Debug `elem` flags)
           (updateGlobalLogger rootLoggerName
-                 (setHandlers [fLog] . (setLevel DEBUG)))
+                 (setHandlers [fLog] . setLevel DEBUG))
 
 setupDirWatching :: [Flag] -> TorrentManager.TorrentMgrChan -> IO [Child]
-setupDirWatching flags watchC = do
+setupDirWatching flags watchC =
     case flag (WatchDir "") flags of
         Nothing -> return []
         Just (WatchDir dir) -> do
             ex <- doesDirectoryExist dir
             if ex
-                then do return [ Worker $ DirWatcher.start dir watchC ]
-                else do putStrLn $ "Directory does not exist, not watching"
+                then return [ Worker $ DirWatcher.start dir watchC ]
+                else do putStrLn "Directory does not exist, not watching"
                         return []
         Just _ -> error "Impossible match"
 
@@ -158,11 +158,11 @@ download flags names = do
     watchC <- liftIO newTChanIO
     workersWatch <- setupDirWatching flags watchC
     -- setup channels
-    statusC  <- liftIO $ newTChanIO
-    waitC    <- liftIO $ newEmptyTMVarIO
+    statusC  <- liftIO newTChanIO
+    waitC    <- liftIO newEmptyTMVarIO
     supC <- liftIO newTChanIO
-    pmC <- liftIO $ newTChanIO
-    chokeC <- liftIO $ newTChanIO
+    pmC <- liftIO newTChanIO
+    chokeC <- liftIO newTChanIO
     rtv <- atomically $ newTVar []
     stv <- atomically $ newTVar []
     debugM "Main" "Created channels"

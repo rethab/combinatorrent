@@ -40,9 +40,7 @@ decrypt (ConnectedPeer _ key) cipher =
 normalize :: (Integral a) => a -> a
 normalize 0 = 32
 normalize x = let toAdd = 32 - (x `mod` 32)
-              in if toAdd == 0
-                    then x + 32
-                    else x + toAdd
+              in x + (if toAdd == 0 then 32 else toAdd)
 
 mapE :: (e -> e') -> (a -> b) -> Either e a -> Either e' b
 mapE lf _ (Left e)  = Left (lf e)
