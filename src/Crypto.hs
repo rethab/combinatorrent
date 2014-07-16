@@ -1,7 +1,7 @@
 {-# LANGUAGE OverloadedStrings #-}
 module Crypto where
 
-import Control.Applicative ((<$>))
+import Control.Applicative ((<$>), (<*>))
 import Control.Concurrent (MVar, newMVar, modifyMVar)
 import Data.Word (Word8)
 
@@ -21,44 +21,55 @@ type Fpr = BS.ByteString
 type SessionKey = BS.ByteString
 
 data ConnectedPeer = ConnectedPeer {
-      cpSocket :: Socket     -- ^ connection to peer
+      cpSocket  :: Socket     -- ^ connection to peer
     , cpSessKey :: SessionKey -- ^ key for symmetric encryption
-    , cpIVMar :: (MVar IV)  -- ^ initialization vector
+    , cpIVMVarE  :: (MVar IV)  -- ^ initialization vector for encryption
+    , cpIVMVarD  :: (MVar IV)  -- ^ initialization vector for decryption
 }
+
+data Type = Leecher | Seeder
 
 data CryptoCtx = CryptoCtx { _homedir :: String, _fpr :: BS.ByteString }
 
 handshakeSeeder :: Socket -> CryptoCtx -> IO (Either String ConnectedPeer)
-handshakeSeeder = runHS seederHandshake
+handshakeSeeder = runHS Seeder seederHandshake
 
 handshakeLeecher :: Socket -> CryptoCtx -> IO (Either String ConnectedPeer)
-handshakeLeecher = runHS leecherHandshake
+handshakeLeecher = runHS Leecher leecherHandshake
 
-runHS :: (Socket -> String -> Fpr -> IO (Either Error SessionKey))
-       -> Socket -> CryptoCtx-> IO (Either String ConnectedPeer)
-runHS hs s (CryptoCtx h fpr) = do
+runHS :: Type -> (Socket -> String -> Fpr -> IO (Either Error SessionKey))
+       -> Socket -> CryptoCtx -> IO (Either String ConnectedPeer)
+runHS t hs s (CryptoCtx h fpr) = do
     eSessK <- hs s h fpr
     case eSessK of
         Left err -> return (Left $ show err)
-        Right sessK -> Right <$> mkConnPeer s sessK
+        Right sessK -> Right <$> mkConnPeer t s sessK
 
-mkConnPeer :: Socket -> SessionKey -> IO ConnectedPeer
-mkConnPeer s k = ConnectedPeer s k <$> newMVar newIV
-
+mkConnPeer :: Type -> Socket -> SessionKey -> IO ConnectedPeer
+mkConnPeer t s k = ConnectedPeer s k <$> mkIVMVarE t <*> mkIVMVarD t
+  where mkIVMVarE Seeder  = newMVar (incrementIV newIV)
+        mkIVMVarE Leecher = newMVar newIV
+        mkIVMVarD Leecher = newMVar (incrementIV newIV)
+        mkIVMVarD Seeder  = newMVar newIV
+    
 encryptL :: ConnectedPeer -> LBS.ByteString -> IO LBS.ByteString
-encryptL (ConnectedPeer _ key ivVar) plain = do
+encryptL (ConnectedPeer _ key ivVar _) plain = do
     iv <- modifyMVar ivVar incIV
+    putStrLn $ "Using " ++ show iv ++ " for encryption"
     cipher <- symmetricEncrypt key iv (LBS.toStrict plain)
     return (either error LBS.fromStrict cipher)
 
 decrypt :: ConnectedPeer -> BS.ByteString -> IO BS.ByteString
-decrypt (ConnectedPeer _ key ivVar) cipher = do
+decrypt (ConnectedPeer _ key _ ivVar) cipher = do
     iv <- modifyMVar ivVar incIV
+    putStrLn $ "Using " ++ show iv ++ " for decryption"
     plain <- symmetricDecrypt key iv cipher
     return (either error id plain)
 
 incIV :: IV -> IO (IV, IV)
-incIV iv = return (incrementIV iv, incrementIV iv)
+incIV iv = return (incTwice iv, incTwice iv)
+    where incTwice = incrementIV . incrementIV
+
 
 normalize :: (Integral a) => a -> a
 normalize 0 = 32
@@ -79,6 +90,7 @@ testSuite = testGroup "Crypto"
   , testCase "HUnit symEncrypion/contToWork" testSymmEncryptionCont
   , testCase "HUnit symEncrypion/bothWays" testSymmEncryptionBothWays
   , testCase "HUnit symEncrypion/changeIV" testSymmEncryptionIV
+  , testCase "HUnit symEncrypion/distinctIV" testSymmEncryptionDistinctIV
   ]
 
 testNormalizeAddToMultipleOf32 :: Assertion
@@ -91,8 +103,8 @@ testNormalizeAddToMultipleOf32 =
 testSymmEncryptionCont :: Assertion
 testSymmEncryptionCont = do
     sessKey <- randomSessionKey
-    p1 <- mkConnPeer undefined sessKey 
-    p2 <- mkConnPeer undefined sessKey 
+    p1 <- mkConnPeer Leecher undefined sessKey 
+    p2 <- mkConnPeer Seeder undefined sessKey 
 
     cipher1 <- encryptL p1 "abc"
     plain1 <- decrypt p2 $ LBS.toStrict cipher1
@@ -106,8 +118,8 @@ testSymmEncryptionCont = do
 testSymmEncryptionBothWays :: Assertion
 testSymmEncryptionBothWays = do
     sessKey <- randomSessionKey
-    p1 <- mkConnPeer undefined sessKey 
-    p2 <- mkConnPeer undefined sessKey 
+    p1 <- mkConnPeer Leecher undefined sessKey 
+    p2 <- mkConnPeer Seeder undefined sessKey 
 
     cipher1 <- encryptL p1 "abc"
     plain1 <- decrypt p2 $ LBS.toStrict cipher1
@@ -121,12 +133,24 @@ testSymmEncryptionBothWays = do
 testSymmEncryptionIV :: Assertion
 testSymmEncryptionIV = do
     sessKey <- randomSessionKey
-    p1 <- mkConnPeer undefined sessKey 
+    p1 <- mkConnPeer Leecher undefined sessKey 
 
     cipher1 <- encryptL p1 "abc"
 
     cipher2 <- encryptL p1 "abc"
     assertBool "should encrypt to different ciphers" (cipher1 /= cipher2)
+
+-- the first message of each needs distinct iv
+testSymmEncryptionDistinctIV :: Assertion
+testSymmEncryptionDistinctIV = do
+    sessKey <- randomSessionKey
+    p1 <- mkConnPeer Leecher undefined sessKey 
+    p2 <- mkConnPeer Seeder undefined sessKey 
+
+    cipher1 <- encryptL p1 "abc"
+    cipher2 <- encryptL p2 "abc"
+
+    assertBool "should decrypt to same" (cipher1 /= cipher2)
     
 
 propMultipleOf32 :: Word8 -> Bool
